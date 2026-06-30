@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Family Rent Vault — static preview (sample data)</title>
+<style>
+:root{color-scheme:dark;--bg-0:#070a18;--bg-1:#0d1230;--card:rgba(255,255,255,.045);--card-brd:rgba(255,255,255,.09);--card-brd-soft:rgba(255,255,255,.06);--text:#e8ebf6;--muted:#98a2b8;--muted-2:#6b7488;--violet:#8b5cf6;--violet-2:#a78bfa;--emerald:#10b981;--emerald-2:#34d399;--amber:#f59e0b;--rose:#fb7185;--cyan:#22d3ee;--radius:16px;--radius-sm:11px;--shadow:0 18px 50px -22px rgba(0,0,0,.75)}
+*{box-sizing:border-box}html,body{margin:0;padding:0}
+body{font-family:"Inter","Segoe UI",-apple-system,Roboto,Helvetica,Arial,sans-serif;color:var(--text);background:radial-gradient(1100px 620px at 78% -8%,rgba(139,92,246,.22),transparent 60%),radial-gradient(900px 560px at 6% 4%,rgba(34,211,238,.12),transparent 58%),linear-gradient(180deg,var(--bg-1),var(--bg-0) 70%);background-attachment:fixed;min-height:100vh;-webkit-font-smoothing:antialiased}
+a{color:var(--violet-2);text-decoration:none}a:hover{text-decoration:underline}
+.app{max-width:1080px;margin:0 auto;padding:0 20px 60px}
+.topbar{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);background:rgba(8,11,26,.62);border-bottom:1px solid var(--card-brd-soft)}
+.topbar-inner{max-width:1080px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-logo{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,var(--violet),var(--cyan));box-shadow:0 8px 24px -8px rgba(139,92,246,.7)}
+.brand-text{display:flex;flex-direction:column;line-height:1.1}.brand-title{font-weight:800;font-size:17px}.brand-sub{font-size:11.5px;color:var(--muted)}
+.netpill{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);padding:5px 10px;border-radius:999px}
+.page{padding-top:28px}
+.dashboard{display:grid;grid-template-columns:1.45fr 1fr;gap:18px;align-items:start}
+.col-main,.col-side{display:flex;flex-direction:column;gap:18px;min-width:0}
+@media(max-width:860px){.dashboard{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--card-brd);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.card-title{margin:0;font-size:15px;font-weight:700}
+.card-desc{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.5}
+.card--hero{background:linear-gradient(160deg,rgba(139,92,246,.14),rgba(255,255,255,.03));border-color:rgba(139,92,246,.28)}
+.hero-name{font-size:13px;color:var(--violet-2);font-weight:700}
+.hero-grid{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+.gauge{position:relative;width:218px;height:218px;flex-shrink:0}
+.gauge svg{display:block;filter:drop-shadow(0 0 18px rgba(52,211,153,.28))}
+.gauge-track{fill:none;stroke:rgba(255,255,255,.08);stroke-width:15}
+.gauge-fill{fill:none;stroke-width:15;stroke-linecap:round}
+.gauge-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.gauge-pct{font-size:38px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.gauge-frac{margin-top:6px;font-size:14px;font-weight:600}.gauge-frac span{color:var(--muted);font-weight:500}
+.gauge-label{margin-top:2px;font-size:11px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.08em}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{background:rgba(0,0,0,.22);border:1px solid var(--card-brd-soft);border-radius:var(--radius-sm);padding:11px 12px}
+.stat-value{font-size:17px;font-weight:700}.stat-value .u{font-size:11px;color:var(--muted);margin-left:3px;font-weight:600}
+.stat-label{font-size:11px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.05em}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:4px 9px;border-radius:999px;border:1px solid transparent;white-space:nowrap}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.badge--locked{color:var(--amber);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.32)}
+.badge--open{color:var(--emerald-2);background:rgba(16,185,129,.13);border-color:rgba(16,185,129,.34)}
+.badge--ok{color:var(--emerald-2);background:rgba(16,185,129,.13);border-color:rgba(16,185,129,.34)}
+.badge--warn{color:var(--rose);background:rgba(251,113,133,.12);border-color:rgba(251,113,133,.32)}
+.badge--muted{color:var(--muted);background:rgba(255,255,255,.05);border-color:var(--card-brd-soft)}
+.countdown{margin-top:16px;padding-top:16px;border-top:1px solid var(--card-brd-soft)}
+.cd-block{font-size:22px;font-weight:800;margin:6px 0 4px}
+.cd-remain{font-size:13px;color:var(--muted)}.cd-remain strong{color:var(--text)}
+.btn{font:inherit;font-weight:600;font-size:14px;padding:10px 16px;border-radius:11px;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;color:#fff;background:rgba(255,255,255,.06);border-color:var(--card-brd)}
+.btn--primary{background:linear-gradient(135deg,var(--violet),#6d4ddb);border-color:rgba(167,139,250,.5);box-shadow:0 10px 26px -12px rgba(139,92,246,.9)}
+.btn--ghost{background:transparent;border-color:var(--card-brd)}
+.btn--block{width:100%}.btn--sm{padding:6px 11px;font-size:12.5px;border-radius:9px}
+.field{display:grid;gap:7px}.field>label{font-size:12px;font-weight:600;color:var(--muted)}
+input{font:inherit;color:var(--text);background:rgba(0,0,0,.28);border:1px solid var(--card-brd);border-radius:11px;padding:11px 12px;width:100%;outline:none}
+input::placeholder{color:var(--muted-2)}
+.divider{height:1px;background:var(--card-brd-soft);margin:16px 0}
+.clist{display:flex;flex-direction:column;gap:8px}
+.clist-head{font-size:13px;font-weight:700;display:flex;justify-content:space-between}
+.crow{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:10px;padding:9px 11px;background:rgba(0,0,0,.2);border:1px solid var(--card-brd-soft);border-radius:11px}
+.crow-main{display:flex;align-items:center;gap:8px;min-width:0}
+.crow-addr{font-size:12.5px;color:var(--violet-2)}.crow-bal{font-size:12.5px;font-weight:600;text-align:right;white-space:nowrap}
+.note-row{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--muted);background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.22);padding:10px 12px;border-radius:11px;line-height:1.5}
+.kvs{display:grid;gap:7px}.kv{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12.5px}.kv .k{color:var(--muted)}.kv .v{color:var(--text)}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,Monaco,Consolas,monospace}
+.muted{color:var(--muted)}.small{font-size:12px}
+.walletpill{display:inline-flex;align-items:center;gap:9px;padding:6px 8px 6px 12px;border-radius:999px;border:1px solid var(--card-brd);background:rgba(0,0,0,.25)}
+.walletdot{width:8px;height:8px;border-radius:50%;background:var(--emerald-2);box-shadow:0 0 0 3px rgba(16,185,129,.25)}
+.walletaddr{font-size:12.5px;color:var(--text)}
+.footer{margin-top:26px;font-size:12px;color:var(--muted-2);text-align:center}
+.previewtag{max-width:1080px;margin:14px auto 0;padding:0 20px}
+.previewtag span{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--cyan);background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.28);padding:5px 10px;border-radius:999px}
+.phase-banner{display:flex;align-items:center;gap:13px;padding:13px 16px;border-radius:14px;border:1px solid}
+.phase-banner.locked{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.26)}
+.pb-ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:17px;background:rgba(255,255,255,.06);border:1px solid var(--card-brd);flex-shrink:0}
+.pb-tag{font-weight:800;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--amber);margin-bottom:3px}
+.pb-text{font-size:13px;color:var(--muted);line-height:1.45}.pb-text strong{color:var(--text);font-weight:700}
+.feed{display:flex;flex-direction:column;gap:7px}
+.frow{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:11px;padding:9px 11px;border-radius:11px;border:1px solid var(--card-brd-soft);background:rgba(0,0,0,.18)}
+.frow.is-family{border-color:rgba(139,92,246,.4);background:rgba(139,92,246,.08)}
+.ficon{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:15px;font-weight:800}
+.ficon.dep{background:rgba(16,185,129,.16);color:var(--emerald-2)}
+.ficon.wd{background:rgba(245,158,11,.16);color:var(--amber)}
+.fmid{min-width:0}.fwho{font-size:12.5px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.fmeta{font-size:11px;color:var(--muted-2);margin-top:2px}
+.famt{font-size:13px;font-weight:700;text-align:right;white-space:nowrap}
+.link{color:var(--violet-2);font-weight:600}
+@media(max-width:620px){.topbar-inner{flex-wrap:wrap;gap:10px}.hero-grid{flex-direction:column;align-items:stretch}.hero-left{display:flex;justify-content:center}}
+</style>
+</head>
+<body>
+<div class="previewtag"><span>Static preview — sample data (real app reads live on-chain state)</span></div>
+
+<div class="app">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 9.5L12 4l8 5.5V20a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1V9.5Z" fill="#fff" fill-opacity=".95"/></svg></div>
+        <div class="brand-text"><span class="brand-title">Family Rent Vault</span><span class="brand-sub">Goal-based savings · FlowVault on Stacks</span></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="netpill">Testnet</span>
+        <div class="walletpill"><span class="walletdot"></span><span class="mono walletaddr">ST2Z9…K4PQM</span><button class="btn btn--ghost btn--sm">Disconnect</button></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="dashboard">
+      <div class="col-main">
+        <div class="phase-banner locked">
+          <div class="pb-ic">🔒</div>
+          <div style="min-width:0;flex:1">
+            <div class="pb-tag">Phase 1 · Locked savings</div>
+            <div class="pb-text">Contributions are time-locked until block <strong>#8,811,500</strong>. Early withdrawals are rejected on-chain (FlowVault Lock).</div>
+          </div>
+        </div>
+
+        <section class="card card--hero">
+          <div class="card-head"><span class="hero-name">Parents' Rent — July</span><button class="btn btn--ghost btn--sm">Reset vault</button></div>
+          <div class="hero-grid">
+            <div class="hero-left"><div class="gauge">
+              <svg width="218" height="218" viewBox="0 0 218 218">
+                <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#22d3ee"/></linearGradient></defs>
+                <circle cx="109" cy="109" r="84" class="gauge-track"/>
+                <circle cx="109" cy="109" r="84" class="gauge-fill" stroke="url(#g)" stroke-dasharray="527.79" stroke-dashoffset="205" transform="rotate(-90 109 109)"/>
+              </svg>
+              <div class="gauge-center"><div class="gauge-pct">61%</div><div class="gauge-frac">612.5 <span>/ 1,000</span></div><div class="gauge-label">USDCx pooled</div></div>
+            </div></div>
+            <div style="flex:1;min-width:0">
+              <div class="stat-grid" style="margin-bottom:8px">
+                <div class="stat"><div class="stat-value">1,000<span class="u">USDCx</span></div><div class="stat-label">Rent goal</div></div>
+                <div class="stat"><div class="stat-value">612.5<span class="u">USDCx</span></div><div class="stat-label">Pooled</div></div>
+                <div class="stat"><div class="stat-value">612.5<span class="u">USDCx</span></div><div class="stat-label">Locked</div></div>
+                <div class="stat"><div class="stat-value">3</div><div class="stat-label">Contributors</div></div>
+              </div>
+              <div class="countdown">
+                <div style="display:flex;justify-content:space-between"><span class="muted small">Rent deadline</span><span class="badge badge--locked">locked</span></div>
+                <div class="cd-block mono">#8,811,500</div>
+                <div class="cd-remain">Unlocks in <strong>2,431</strong> blocks · ~16d 21h</div>
+                <div class="muted small" style="margin-top:4px">Current block: <span class="mono">#8,809,069</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3 class="card-title">Contribute to Rent</h3><span class="badge badge--locked">funds locked</span></div>
+          <p class="card-desc">Your deposit is fully locked against the family deadline. Because the contract's <span class="mono">deposit</span> applies the routing rule, the funds cannot be withdrawn early.</p>
+          <div class="note-row" style="margin-bottom:14px"><span>🔒</span><span>Your locked contribution so far: <strong>200 USDCx</strong></span></div>
+          <div class="field" style="margin-bottom:12px"><label>Amount (USDCx)</label><input value="250"/></div>
+          <button class="btn btn--primary btn--block">Lock contribution</button>
+          <div class="divider"></div>
+          <button class="btn btn--ghost btn--block">🛡️ Attempt early withdrawal (lock-enforcement proof)</button>
+        </section>
+      </div>
+
+      <div class="col-side">
+        <section class="card">
+          <div class="card-head"><h3 class="card-title">Family Progress Tracker</h3><button class="btn btn--ghost btn--sm">↻ Refresh</button></div>
+          <div class="clist">
+            <div class="clist-head"><span>Contributors</span><span class="muted small">3</span></div>
+            <div class="crow"><div class="crow-main"><span class="mono crow-addr">ST2Z9…K4PQM</span><span class="badge badge--locked">locked</span></div><div class="crow-bal">200 <span class="muted small">USDCx</span></div><button class="btn btn--ghost btn--sm">×</button></div>
+            <div class="crow"><div class="crow-main"><span class="mono crow-addr">SP3F2…7BQXR</span><span class="badge badge--locked">locked</span></div><div class="crow-bal">312.5 <span class="muted small">USDCx</span></div><button class="btn btn--ghost btn--sm">×</button></div>
+            <div class="crow"><div class="crow-main"><span class="mono crow-addr">ST1AB…09YEL</span><span class="badge badge--locked">locked</span></div><div class="crow-bal">100 <span class="muted small">USDCx</span></div><button class="btn btn--ghost btn--sm">×</button></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3 class="card-title">Vault activity</h3><button class="btn btn--ghost btn--sm">↻</button></div>
+          <p class="card-desc" style="margin-bottom:10px">Latest on-chain deposits &amp; withdrawals on this FlowVault contract. Real testnet rows shown below.</p>
+          <div class="feed">
+            <div class="frow is-family"><div class="ficon wd">↑</div><div class="fmid"><div class="fwho"><span class="mono">STRNR…KBBM</span><span class="badge badge--ok">family</span><span class="badge badge--warn">withdraw</span></div><div class="fmeta">2h ago · <a class="link">tx</a></div></div><div class="famt">3 <span class="muted small">USDCx</span></div></div>
+            <div class="frow is-family"><div class="ficon dep">↓</div><div class="fmid"><div class="fwho"><span class="mono">STRNR…KBBM</span><span class="badge badge--ok">family</span><span class="badge badge--open">deposit</span></div><div class="fmeta">5h ago · locked→#4,022,241 · split→ST2CY…K9AG · <a class="link">tx</a></div></div><div class="famt">5 <span class="muted small">USDCx</span></div></div>
+            <div class="frow is-family"><div class="ficon dep">↓</div><div class="fmid"><div class="fwho"><span class="mono">STRNR…KBBM</span><span class="badge badge--ok">family</span><span class="badge badge--open">deposit</span></div><div class="fmeta">9h ago · locked→#4,022,228 · <a class="link">tx</a></div></div><div class="famt">5 <span class="muted small">USDCx</span></div></div>
+            <div class="frow"><div class="ficon dep">↓</div><div class="fmid"><div class="fwho"><span class="mono">ST2CY…K9AG</span><span class="badge badge--open">deposit</span></div><div class="fmeta">1d ago · <a class="link">tx</a></div></div><div class="famt">2 <span class="muted small">USDCx</span></div></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3 class="card-title">Setup &amp; tokens</h3></div>
+          <div class="kvs">
+            <div class="kv"><span class="k">FlowVault contract</span><a class="v link mono">STD7QG…flowvault-v2</a></div>
+            <div class="kv"><span class="k">Token</span><span class="v mono">ST1PQH…GM.usdcx</span></div>
+          </div>
+          <div class="divider"></div>
+          <a class="btn btn--ghost btn--block" style="margin-bottom:8px">Get testnet STX (faucet) ↗</a>
+          <a class="btn btn--ghost btn--block">Read the contract on Stacks Explorer ↗</a>
+        </section>
+      </div>
+    </div>
+    <footer class="footer">Built with the FlowVault <em>Lock</em> &amp; <em>Split</em> primitives · Stacks Testnet</footer>
+  </main>
+</div>
+</body>
+</html>
