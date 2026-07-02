@@ -1,5 +1,5 @@
-import { FamilyRentVault } from "@/components/FamilyRentVault";
+import { FamilyRentVaultLanding } from "@/components/FamilyRentVaultLanding";
 
 export default function HomePage() {
-  return <FamilyRentVault />;
+  return <FamilyRentVaultLanding />;
 }
