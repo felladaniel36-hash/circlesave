@@ -135,8 +135,9 @@ export function FamilyRentVaultLanding() {
 
   // --- Setup form fields ---
   const [setupGoal, setSetupGoal] = useState("1000");
-  const [setupDeadlineMode, setSetupDeadlineMode] = useState<"duration" | "absolute">("duration");
-  const [setupDeadlineValue, setSetupDeadlineValue] = useState(String(DAY_BLOCKS * 7)); // ~1 week
+  const [setupDeadlineMode, setSetupDeadlineMode] = useState<"calendar" | "duration" | "absolute">("calendar");
+  const [setupDeadlineValue, setSetupDeadlineValue] = useState(String(DAY_BLOCKS * 7)); // ~1 week (duration mode)
+  const [setupDeadlineDate, setSetupDeadlineDate] = useState(""); // yyyy-mm-dd (calendar mode)
   const [setupLandlord, setSetupLandlord] = useState("");
   const [setupError, setSetupError] = useState("");
 
@@ -157,6 +158,11 @@ export function FamilyRentVaultLanding() {
 
   // --- Restore session + local persistence on mount ---
   useEffect(() => {
+    // Default calendar date = 7 days from today
+    const defaultDate = new Date();
+    defaultDate.setDate(defaultDate.getDate() + 7);
+    setSetupDeadlineDate(defaultDate.toISOString().slice(0, 10));
+
     if (isConnected()) {
       const stored = getLocalStorage();
       const addr = extractStxAddress(stored?.addresses);
@@ -284,19 +290,34 @@ export function FamilyRentVaultLanding() {
       return setSetupError("Landlord address looks invalid (should start with ST/SP/SM/SN).");
 
     // Resolve deadline block
-    const n = Number(setupDeadlineValue);
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0)
-      return setSetupError("Enter a positive whole number of blocks.");
-
     let deadlineBlock: number;
-    if (setupDeadlineMode === "duration") {
+    if (setupDeadlineMode === "calendar") {
+      if (!setupDeadlineDate) return setSetupError("Pick a calendar date for the deadline.");
+      // Convert the selected date to a block height:
+      // targetTime (end of selected day) → minutes from now → blocks → + currentBlock
+      const targetMs = new Date(setupDeadlineDate + "T23:59:59").getTime();
+      const nowMs = Date.now();
+      if (Number.isNaN(targetMs)) return setSetupError("Invalid date selected.");
+      if (targetMs <= nowMs) return setSetupError("Pick a future date.");
       if (currentBlock <= 0)
         return setSetupError("Connect your wallet first so we can read the current block height.");
-      deadlineBlock = currentBlock + n;
+      const diffMin = Math.max(1, Math.round((targetMs - nowMs) / 60000));
+      deadlineBlock = currentBlock + Math.max(1, Math.round(diffMin / BLOCK_TIME_MIN));
     } else {
-      deadlineBlock = n;
-      if (currentBlock > 0 && deadlineBlock <= currentBlock)
-        return setSetupError("Absolute deadline must be a future block.");
+      const n = Number(setupDeadlineValue);
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0)
+        return setSetupError("Enter a positive whole number of blocks.");
+
+      if (setupDeadlineMode === "duration") {
+        if (currentBlock <= 0)
+          return setSetupError("Connect your wallet first so we can read the current block height.");
+        deadlineBlock = currentBlock + n;
+      } else {
+        // absolute
+        deadlineBlock = n;
+        if (currentBlock > 0 && deadlineBlock <= currentBlock)
+          return setSetupError("Absolute deadline must be a future block.");
+      }
     }
 
     const cfg: VaultConfig = {
@@ -313,7 +334,7 @@ export function FamilyRentVaultLanding() {
     }
     setShowVaultSetup(false);
     setStatus({ kind: "ok", msg: `Vault created — goal ${cfg.goal} USDCx, unlocks at block #${deadlineBlock.toLocaleString()}.` });
-  }, [setupGoal, setupLandlord, setupDeadlineMode, setupDeadlineValue, currentBlock]);
+  }, [setupGoal, setupLandlord, setupDeadlineMode, setupDeadlineValue, setupDeadlineDate, currentBlock]);
 
   // =========================================================================
   // (2) DEPOSIT — openContractCall: set-routing-rules (lock) → deposit
@@ -475,10 +496,19 @@ export function FamilyRentVaultLanding() {
   const settlementReady = deadlineBlock > 0 && currentBlock > 0 && currentBlock >= deadlineBlock;
   const blocksRemaining = deadlineBlock > 0 && currentBlock > 0 ? Math.max(0, deadlineBlock - currentBlock) : 0;
 
-  // Resolved absolute block shown in the setup modal (for duration mode)
-  const resolvedAbsolute = setupDeadlineMode === "duration" && currentBlock > 0
-    ? currentBlock + (Number(setupDeadlineValue) || 0)
-    : Number(setupDeadlineValue) || 0;
+  // Resolved absolute block shown in the setup modal (for duration/calendar modes)
+  let resolvedAbsolute = 0;
+  if (setupDeadlineMode === "calendar") {
+    if (setupDeadlineDate && currentBlock > 0) {
+      const targetMs = new Date(setupDeadlineDate + "T23:59:59").getTime();
+      const diffMin = Math.max(1, Math.round((targetMs - Date.now()) / 60000));
+      resolvedAbsolute = currentBlock + Math.max(1, Math.round(diffMin / BLOCK_TIME_MIN));
+    }
+  } else if (setupDeadlineMode === "duration") {
+    resolvedAbsolute = currentBlock > 0 ? currentBlock + (Number(setupDeadlineValue) || 0) : 0;
+  } else {
+    resolvedAbsolute = Number(setupDeadlineValue) || 0;
+  }
 
   // -------------------------------------------------------------------------
   return (
@@ -790,8 +820,15 @@ export function FamilyRentVaultLanding() {
 
               {/* Deadline */}
               <div>
-                <label className="font-label-caps text-on-surface-variant mb-2 block">Deadline (Unlock Block)</label>
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <label className="font-label-caps text-on-surface-variant mb-2 block">Deadline (Unlock Date)</label>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setSetupDeadlineMode("calendar")}
+                    className={`p-3 rounded-lg border font-label-caps transition-colors ${setupDeadlineMode === "calendar" ? "bg-primary-container text-on-primary-container border-primary-container" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
+                  >
+                    Calendar
+                  </button>
                   <button
                     type="button"
                     onClick={() => setSetupDeadlineMode("duration")}
@@ -804,40 +841,70 @@ export function FamilyRentVaultLanding() {
                     onClick={() => setSetupDeadlineMode("absolute")}
                     className={`p-3 rounded-lg border font-label-caps transition-colors ${setupDeadlineMode === "absolute" ? "bg-primary-container text-on-primary-container border-primary-container" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
                   >
-                    Absolute Block
+                    Block #
                   </button>
                 </div>
-                <input
-                  type="number"
-                  value={setupDeadlineValue}
-                  onChange={(e) => setSetupDeadlineValue(e.target.value)}
-                  placeholder={setupDeadlineMode === "duration" ? String(DAY_BLOCKS) : "8820000"}
-                  className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono mb-3"
-                />
-                {/* Duration presets */}
-                {setupDeadlineMode === "duration" && (
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {[
-                      ["1 hour", 6],
-                      ["1 day", DAY_BLOCKS],
-                      ["1 week", DAY_BLOCKS * 7],
-                      ["1 month", DAY_BLOCKS * 30],
-                    ].map(([label, val]) => (
-                      <button
-                        key={String(val)}
-                        type="button"
-                        onClick={() => setSetupDeadlineValue(String(val))}
-                        className={`px-3 py-1.5 rounded-lg border font-label-caps text-xs transition-colors ${setupDeadlineValue === String(val) ? "bg-primary/20 border-primary text-primary" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
-                      >
-                        {label} <span className="opacity-60">· {val}</span>
-                      </button>
-                    ))}
+
+                {/* Calendar mode — native date picker */}
+                {setupDeadlineMode === "calendar" && (
+                  <div className="mb-3">
+                    <input
+                      type="date"
+                      value={setupDeadlineDate}
+                      min={new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setSetupDeadlineDate(e.target.value)}
+                      className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono"
+                    />
                   </div>
                 )}
+
+                {/* Duration mode — number input + presets */}
+                {setupDeadlineMode === "duration" && (
+                  <>
+                    <input
+                      type="number"
+                      value={setupDeadlineValue}
+                      onChange={(e) => setSetupDeadlineValue(e.target.value)}
+                      placeholder={String(DAY_BLOCKS)}
+                      className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono mb-3"
+                    />
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {[
+                        ["1 hour", 6],
+                        ["1 day", DAY_BLOCKS],
+                        ["1 week", DAY_BLOCKS * 7],
+                        ["1 month", DAY_BLOCKS * 30],
+                      ].map(([label, val]) => (
+                        <button
+                          key={String(val)}
+                          type="button"
+                          onClick={() => setSetupDeadlineValue(String(val))}
+                          className={`px-3 py-1.5 rounded-lg border font-label-caps text-xs transition-colors ${setupDeadlineValue === String(val) ? "bg-primary/20 border-primary text-primary" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
+                        >
+                          {label} <span className="opacity-60">· {val}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Absolute mode — raw block number */}
+                {setupDeadlineMode === "absolute" && (
+                  <input
+                    type="number"
+                    value={setupDeadlineValue}
+                    onChange={(e) => setSetupDeadlineValue(e.target.value)}
+                    placeholder="8820000"
+                    className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono mb-3"
+                  />
+                )}
+
                 <p className="font-label-caps text-[10px] text-on-surface-variant">
-                  {setupDeadlineMode === "duration"
-                    ? `Adds blocks to the current chain height. Resolves to #${resolvedAbsolute.toLocaleString()}`
-                    : "Enter a specific future Stacks block height."}
+                  {setupDeadlineMode === "calendar"
+                    ? `Funds lock until this date. Resolves to block #${resolvedAbsolute > 0 ? resolvedAbsolute.toLocaleString() : "…"}`
+                    : setupDeadlineMode === "duration"
+                      ? `Adds blocks to the current chain height. Resolves to #${resolvedAbsolute > 0 ? resolvedAbsolute.toLocaleString() : "…"}`
+                      : "Enter a specific future Stacks block height."}
                   {currentBlock > 0 && ` (current: #${currentBlock.toLocaleString()}).`}
                   {" "}~{DAY_BLOCKS} blocks ≈ 1 day.
                 </p>
@@ -865,10 +932,10 @@ export function FamilyRentVaultLanding() {
 
               <button
                 onClick={createVault}
-                disabled={currentBlock <= 0 && setupDeadlineMode === "duration"}
+                disabled={currentBlock <= 0 && setupDeadlineMode !== "absolute"}
                 className="w-full bg-primary-container text-on-primary-container font-bold py-4 rounded-xl hover:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {currentBlock <= 0 && setupDeadlineMode === "duration" ? "Connect wallet to read block height" : (vaultConfig ? "Update Vault" : "Create Vault")}
+                {currentBlock <= 0 && setupDeadlineMode !== "absolute" ? "Connect wallet to read block height" : (vaultConfig ? "Update Vault" : "Create Vault")}
               </button>
             </div>
           </div>
