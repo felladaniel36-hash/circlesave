@@ -39,6 +39,10 @@ const MICRO = 10 ** USDCX_DECIMALS;
 const RING_RADIUS = 80;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS; // ≈ 502.65
 
+// ~144 Stacks blocks ≈ 1 day (≈10 min/block). For duration presets only.
+const BLOCK_TIME_MIN = 10;
+const DAY_BLOCKS = Math.round((24 * 60) / BLOCK_TIME_MIN); // 144
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -51,13 +55,19 @@ interface Contributor {
   status: "Confirmed" | "Pending";
 }
 
+interface VaultConfig {
+  goal: number; // target USDCx (token-scale)
+  deadlineBlock: number; // absolute Stacks block height
+  landlord: string; // landlord STX address
+  createdAt: number;
+}
+
 type StatusKind = "ok" | "err" | "info";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Robustly coerce a parsed Clarity uint (bigint|number|string|{value}) to a JS number. */
 function toUint(v: unknown): number {
   let n: unknown = v;
   while (n && typeof n === "object" && "value" in (n as Record<string, unknown>)) {
@@ -69,7 +79,6 @@ function toUint(v: unknown): number {
   return 0;
 }
 
-/** Convert a decimal token string (e.g. "1.5") to integer micro-units. */
 function tokenToMicro(amountStr: string): bigint {
   const trimmed = (amountStr || "").trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) {
@@ -88,6 +97,19 @@ function explorerTx(txid: string): string {
   return `https://explorer.hiro.so/txid/${id}?chain=testnet`;
 }
 
+function blocksToHuman(blocks: number): string {
+  if (blocks <= 0) return "now";
+  const totalMin = Math.round(blocks * BLOCK_TIME_MIN);
+  const days = Math.floor(totalMin / (24 * 60));
+  const hours = Math.floor((totalMin % (24 * 60)) / 60);
+  const mins = totalMin % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (days === 0 && mins > 0) parts.push(`${mins}m`);
+  return parts.join(" ") || "<1m";
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -99,19 +121,24 @@ export function FamilyRentVaultLanding() {
   const [isConnecting, setIsConnecting] = useState(false);
 
   // --- On-chain state (populated from get-vault-state) ---
-  const [vaultBalance, setVaultBalance] = useState(350); // token-scale, for the ring
-  const [unlockedMicro, setUnlockedMicro] = useState(0); // micro, for settlement
-  const [targetGoal] = useState(1000);
-  const [currentBlock, setCurrentBlock] = useState(842100);
-  const [targetUnlockBlock, setTargetUnlockBlock] = useState(843500);
+  const [vaultBalance, setVaultBalance] = useState(0); // token-scale
+  const [unlockedMicro, setUnlockedMicro] = useState(0);
+  const [currentBlock, setCurrentBlock] = useState(0);
+
+  // --- Vault configuration (goal + deadline + landlord) ---
+  const [vaultConfig, setVaultConfig] = useState<VaultConfig | null>(null);
+  const [showVaultSetup, setShowVaultSetup] = useState(false);
 
   // --- Registry + inputs ---
-  const [contributorsList, setContributorsList] = useState<Contributor[]>([
-    { id: "alice", name: "Alice", address: "ST1P...GZGM", amount: 150, status: "Confirmed" },
-    { id: "bob", name: "Bob", address: "ST3A...X932", amount: 200, status: "Confirmed" },
-  ]);
+  const [contributorsList, setContributorsList] = useState<Contributor[]>([]);
   const [depositAmount, setDepositAmount] = useState("");
-  const [landlordAddress, setLandlordAddress] = useState("");
+
+  // --- Setup form fields ---
+  const [setupGoal, setSetupGoal] = useState("1000");
+  const [setupDeadlineMode, setSetupDeadlineMode] = useState<"duration" | "absolute">("duration");
+  const [setupDeadlineValue, setSetupDeadlineValue] = useState(String(DAY_BLOCKS * 7)); // ~1 week
+  const [setupLandlord, setSetupLandlord] = useState("");
+  const [setupError, setSetupError] = useState("");
 
   // --- Add-sibling form ---
   const [isAddingSibling, setIsAddingSibling] = useState(false);
@@ -122,11 +149,11 @@ export function FamilyRentVaultLanding() {
   const [status, setStatus] = useState<{ kind: StatusKind; msg: string; txid?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Ref so async/onFinish callbacks read the latest landlord without stale closures
-  const landlordRef = useRef(landlordAddress);
+  // Refs so chained openContractCall callbacks read latest config
+  const configRef = useRef(vaultConfig);
   useEffect(() => {
-    landlordRef.current = landlordAddress;
-  }, [landlordAddress]);
+    configRef.current = vaultConfig;
+  }, [vaultConfig]);
 
   // --- Restore session + local persistence on mount ---
   useEffect(() => {
@@ -141,8 +168,15 @@ export function FamilyRentVaultLanding() {
         const parsed = JSON.parse(c);
         if (Array.isArray(parsed) && parsed.length) setContributorsList(parsed);
       }
-      const ll = window.localStorage.getItem("frv.landing.landlord.v1");
-      if (ll) setLandlordAddress(ll);
+      const cfg = window.localStorage.getItem("frv.landing.config.v1");
+      if (cfg) {
+        const parsed = JSON.parse(cfg) as VaultConfig;
+        if (parsed && parsed.deadlineBlock > 0) {
+          setVaultConfig(parsed);
+          setSetupGoal(String(parsed.goal));
+          setSetupLandlord(parsed.landlord);
+        }
+      }
     } catch {
       /* ignore */
     }
@@ -156,14 +190,6 @@ export function FamilyRentVaultLanding() {
     }
   }, [contributorsList]);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("frv.landing.landlord.v1", landlordAddress);
-    } catch {
-      /* ignore */
-    }
-  }, [landlordAddress]);
-
   // =========================================================================
   // (1) WALLET CONNECT — v8 uses connect() (showConnect was removed)
   // =========================================================================
@@ -171,10 +197,7 @@ export function FamilyRentVaultLanding() {
     setWalletError("");
     setIsConnecting(true);
     try {
-      const res = await connect({
-        network: NETWORK,
-        forceWalletSelect: true,
-      });
+      const res = await connect({ network: NETWORK, forceWalletSelect: true });
       const addr = extractStxAddress(res?.addresses);
       if (!addr) {
         setWalletError("No Stacks account found. Select an STX account in your wallet.");
@@ -205,7 +228,6 @@ export function FamilyRentVaultLanding() {
   const refreshVaultState = useCallback(async () => {
     if (!walletAddress) return;
     try {
-      // current block height
       const blockCv = await fetchCallReadOnlyFunction({
         contractAddress: CONTRACT_ADDRESS,
         contractName: CONTRACT_NAME,
@@ -216,7 +238,6 @@ export function FamilyRentVaultLanding() {
       });
       setCurrentBlock(toUint(cvToValue(blockCv, true)));
 
-      // vault state for this wallet
       const stateCv = await fetchCallReadOnlyFunction({
         contractAddress: CONTRACT_ADDRESS,
         contractName: CONTRACT_NAME,
@@ -227,20 +248,13 @@ export function FamilyRentVaultLanding() {
       });
       const state = cvToValue(stateCv, true) as Record<string, unknown>;
 
-      const totalMicro = toUint(state["total-balance"]);
-      const unlocked = toUint(state["unlocked-balance"]);
-      const lockUntil = toUint(state["lock-until-block"]);
-
-      setVaultBalance(totalMicro / MICRO);
-      setUnlockedMicro(unlocked);
-      if (lockUntil > 0) setTargetUnlockBlock(lockUntil);
+      setVaultBalance(toUint(state["total-balance"]) / MICRO);
+      setUnlockedMicro(toUint(state["unlocked-balance"]));
     } catch (e) {
-      // Silent fail on reads — chain may be unreachable; UI keeps last values.
       console.warn("vault read failed", e);
     }
   }, [walletAddress]);
 
-  // Fetch live data when a wallet connects, then poll every 20s
   useEffect(() => {
     if (!walletAddress) return;
     void refreshVaultState();
@@ -249,12 +263,68 @@ export function FamilyRentVaultLanding() {
   }, [walletAddress, refreshVaultState]);
 
   // =========================================================================
+  // VAULT SETUP — resolve the configured goal/deadline/landlord
+  // =========================================================================
+  const createVault = useCallback(() => {
+    setSetupError("");
+
+    // Validate goal
+    let goalMicro: bigint;
+    try {
+      goalMicro = tokenToMicro(setupGoal);
+    } catch {
+      return setSetupError("Enter a valid rent goal in USDCx (e.g. 1000).");
+    }
+    if (goalMicro <= 0n) return setSetupError("Goal must be greater than zero.");
+
+    // Validate landlord
+    const landlord = setupLandlord.trim();
+    if (!landlord) return setSetupError("Enter the landlord's Stacks address.");
+    if (!/^(ST|SP|SM|SN)[0-9A-Z]{30,}/i.test(landlord))
+      return setSetupError("Landlord address looks invalid (should start with ST/SP/SM/SN).");
+
+    // Resolve deadline block
+    const n = Number(setupDeadlineValue);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0)
+      return setSetupError("Enter a positive whole number of blocks.");
+
+    let deadlineBlock: number;
+    if (setupDeadlineMode === "duration") {
+      if (currentBlock <= 0)
+        return setSetupError("Connect your wallet first so we can read the current block height.");
+      deadlineBlock = currentBlock + n;
+    } else {
+      deadlineBlock = n;
+      if (currentBlock > 0 && deadlineBlock <= currentBlock)
+        return setSetupError("Absolute deadline must be a future block.");
+    }
+
+    const cfg: VaultConfig = {
+      goal: Number(goalMicro) / MICRO,
+      deadlineBlock,
+      landlord,
+      createdAt: Date.now(),
+    };
+    setVaultConfig(cfg);
+    try {
+      window.localStorage.setItem("frv.landing.config.v1", JSON.stringify(cfg));
+    } catch {
+      /* ignore */
+    }
+    setShowVaultSetup(false);
+    setStatus({ kind: "ok", msg: `Vault created — goal ${cfg.goal} USDCx, unlocks at block #${deadlineBlock.toLocaleString()}.` });
+  }, [setupGoal, setupLandlord, setupDeadlineMode, setupDeadlineValue, currentBlock]);
+
+  // =========================================================================
   // (2) DEPOSIT — openContractCall: set-routing-rules (lock) → deposit
   // =========================================================================
   const handleContribute = useCallback(() => {
     setStatus(null);
     setWalletError("");
     if (!walletAddress) return setWalletError("Connect your wallet first.");
+    const cfg = configRef.current;
+    if (!cfg) return setStatus({ kind: "err", msg: "Create your vault first (Launch Your Vault)." });
+
     let micro: bigint;
     try {
       micro = tokenToMicro(depositAmount);
@@ -265,22 +335,20 @@ export function FamilyRentVaultLanding() {
     setBusy(true);
     setStatus({ kind: "info", msg: "Approve the LOCK rule in your wallet (1/2)…" });
 
-    // Step 1 — configure the time-lock for this deposit
     openContractCall({
       network: NETWORK,
       contractAddress: CONTRACT_ADDRESS,
       contractName: CONTRACT_NAME,
       functionName: "set-routing-rules",
       functionArgs: [
-        uintCV(micro), // lock-amount  (full deposit locked)
-        uintCV(targetUnlockBlock), // lock-until-block (family deadline)
+        uintCV(micro), // lock-amount (full deposit locked)
+        uintCV(cfg.deadlineBlock), // lock-until-block (family deadline)
         noneCV(), // split-address (none during the savings phase)
         uintCV(0), // split-amount
       ],
       postConditionMode: PostConditionMode.Allow,
       onFinish: () => {
         setStatus({ kind: "info", msg: "Lock set. Now approve the USDCx DEPOSIT (2/2)…" });
-        // Step 2 — deposit; FlowVault applies the lock at deposit time
         openContractCall({
           network: NETWORK,
           contractAddress: CONTRACT_ADDRESS,
@@ -294,7 +362,7 @@ export function FamilyRentVaultLanding() {
           onFinish: (payload) => {
             setStatus({
               kind: "ok",
-              msg: `Locked ${Number(micro) / MICRO} USDCx until block #${targetUnlockBlock.toLocaleString()}.`,
+              msg: `Locked ${Number(micro) / MICRO} USDCx until block #${cfg.deadlineBlock.toLocaleString()}.`,
               txid: payload.txId,
             });
             setDepositAmount("");
@@ -312,23 +380,21 @@ export function FamilyRentVaultLanding() {
         setBusy(false);
       },
     });
-  }, [walletAddress, depositAmount, targetUnlockBlock, refreshVaultState]);
+  }, [walletAddress, depositAmount, refreshVaultState]);
 
   // =========================================================================
-  // (3) SETTLE & ROUTE — withdraw (unlock) → set-routing-rules (split) → deposit
-  //     The FlowVault contract applies Split at deposit time, so we route to
-  //     the landlord by withdrawing first, then depositing with a split rule.
+  // (3) SETTLE & ROUTE — withdraw → set-routing-rules (split) → deposit
   // =========================================================================
   const handleSettleAndRoute = useCallback(() => {
     setStatus(null);
     setWalletError("");
     if (!walletAddress) return setWalletError("Connect your wallet first.");
-    if (targetUnlockBlock === 0) return setStatus({ kind: "err", msg: "No lock configured yet." });
-    if (currentBlock < targetUnlockBlock)
+    const cfg = configRef.current;
+    if (!cfg) return setStatus({ kind: "err", msg: "Create your vault first." });
+    if (currentBlock < cfg.deadlineBlock)
       return setStatus({ kind: "err", msg: "Deadline block not reached yet." });
 
-    const ll = landlordRef.current.trim();
-    if (!ll) return setStatus({ kind: "err", msg: "Set a landlord address first." });
+    const ll = cfg.landlord.trim();
     if (!/^(ST|SP|SM|SN)[0-9A-Z]{30,}/i.test(ll))
       return setStatus({ kind: "err", msg: "Landlord address looks invalid." });
 
@@ -338,51 +404,33 @@ export function FamilyRentVaultLanding() {
     setBusy(true);
     setStatus({ kind: "info", msg: "Approve WITHDRAW to unlock funds (1/3)…" });
 
-    // Step 1 — withdraw unlocked balance back to the contributor
     openContractCall({
       network: NETWORK,
       contractAddress: CONTRACT_ADDRESS,
       contractName: CONTRACT_NAME,
       functionName: "withdraw",
-      functionArgs: [
-        contractPrincipalCV(TOKEN_CONTRACT_ADDRESS, TOKEN_CONTRACT_NAME),
-        uintCV(micro),
-      ],
+      functionArgs: [contractPrincipalCV(TOKEN_CONTRACT_ADDRESS, TOKEN_CONTRACT_NAME), uintCV(micro)],
       postConditionMode: PostConditionMode.Allow,
       onFinish: () => {
         setStatus({ kind: "info", msg: "Approve the SPLIT rule → landlord (2/3)…" });
-        // Step 2 — set routing rule to split the full amount to the landlord
         openContractCall({
           network: NETWORK,
           contractAddress: CONTRACT_ADDRESS,
           contractName: CONTRACT_NAME,
           functionName: "set-routing-rules",
-          functionArgs: [
-            uintCV(0), // lock-amount
-            uintCV(0), // lock-until-block
-            someCV(principalCV(ll)), // split-address = landlord
-            uintCV(micro), // split-amount
-          ],
+          functionArgs: [uintCV(0), uintCV(0), someCV(principalCV(ll)), uintCV(micro)],
           postConditionMode: PostConditionMode.Allow,
           onFinish: () => {
             setStatus({ kind: "info", msg: "Approve DEPOSIT to route rent to landlord (3/3)…" });
-            // Step 3 — deposit; FlowVault's Split routes the funds to the landlord
             openContractCall({
               network: NETWORK,
               contractAddress: CONTRACT_ADDRESS,
               contractName: CONTRACT_NAME,
               functionName: "deposit",
-              functionArgs: [
-                contractPrincipalCV(TOKEN_CONTRACT_ADDRESS, TOKEN_CONTRACT_NAME),
-                uintCV(micro),
-              ],
+              functionArgs: [contractPrincipalCV(TOKEN_CONTRACT_ADDRESS, TOKEN_CONTRACT_NAME), uintCV(micro)],
               postConditionMode: PostConditionMode.Allow,
               onFinish: (payload) => {
-                setStatus({
-                  kind: "ok",
-                  msg: `Routed ${Number(micro) / MICRO} USDCx to the landlord.`,
-                  txid: payload.txId,
-                });
+                setStatus({ kind: "ok", msg: `Routed ${Number(micro) / MICRO} USDCx to the landlord.`, txid: payload.txId });
                 setBusy(false);
                 void refreshVaultState();
               },
@@ -403,7 +451,7 @@ export function FamilyRentVaultLanding() {
         setBusy(false);
       },
     });
-  }, [walletAddress, currentBlock, targetUnlockBlock, unlockedMicro, refreshVaultState]);
+  }, [walletAddress, currentBlock, unlockedMicro, refreshVaultState]);
 
   // --- Add sibling ---
   const handleJoinVault = useCallback(() => {
@@ -420,9 +468,17 @@ export function FamilyRentVaultLanding() {
   }, [siblingName, siblingAddress]);
 
   // --- Derived ---
-  const progress = Math.min(1, vaultBalance / targetGoal);
+  const goal = vaultConfig?.goal ?? 0;
+  const deadlineBlock = vaultConfig?.deadlineBlock ?? 0;
+  const progress = goal > 0 ? Math.min(1, vaultBalance / goal) : 0;
   const strokeDashoffset = RING_CIRCUMFERENCE * (1 - progress);
-  const settlementReady = targetUnlockBlock > 0 && currentBlock >= targetUnlockBlock;
+  const settlementReady = deadlineBlock > 0 && currentBlock > 0 && currentBlock >= deadlineBlock;
+  const blocksRemaining = deadlineBlock > 0 && currentBlock > 0 ? Math.max(0, deadlineBlock - currentBlock) : 0;
+
+  // Resolved absolute block shown in the setup modal (for duration mode)
+  const resolvedAbsolute = setupDeadlineMode === "duration" && currentBlock > 0
+    ? currentBlock + (Number(setupDeadlineValue) || 0)
+    : Number(setupDeadlineValue) || 0;
 
   // -------------------------------------------------------------------------
   return (
@@ -477,8 +533,11 @@ export function FamilyRentVaultLanding() {
               Pool USDCx securely with family members to meet fixed milestones—programmatically locked and automatically routed straight to your landlord.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
-              <button className="bg-primary-container text-on-primary-container px-8 py-3 rounded-xl font-bold neon-glow-orange hover:bg-secondary transition-colors">
-                Launch Your Vault
+              <button
+                onClick={() => setShowVaultSetup(true)}
+                className="bg-primary-container text-on-primary-container px-8 py-3 rounded-xl font-bold neon-glow-orange hover:bg-secondary transition-colors"
+              >
+                {vaultConfig ? "Edit Vault Settings" : "Launch Your Vault"}
               </button>
               <button className="border border-zinc-700 text-white px-8 py-3 rounded-xl font-medium hover:bg-zinc-900 transition-colors">
                 View Audit
@@ -487,7 +546,7 @@ export function FamilyRentVaultLanding() {
           </div>
         </section>
 
-        {/* Errors */}
+        {/* Errors + status */}
         {walletError && (
           <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 font-body-sm">
             {walletError}
@@ -500,10 +559,21 @@ export function FamilyRentVaultLanding() {
             </span>
             <span className="flex-1">{status.msg}</span>
             {status.txid && (
-              <a href={explorerTx(status.txid)} target="_blank" rel="noreferrer" className="font-data-mono text-xs underline">
-                tx ↗
-              </a>
+              <a href={explorerTx(status.txid)} target="_blank" rel="noreferrer" className="font-data-mono text-xs underline">tx ↗</a>
             )}
+          </div>
+        )}
+
+        {/* If no vault yet — show a prompt */}
+        {!vaultConfig && (
+          <div className="mb-6 p-6 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 font-body-sm flex items-center gap-4">
+            <span className="material-symbols-outlined">info</span>
+            <div className="flex-1">
+              <strong>No vault configured yet.</strong> Click <em>Launch Your Vault</em> to set your rent goal, deadline block, and landlord address.
+            </div>
+            <button onClick={() => setShowVaultSetup(true)} className="bg-amber-500/20 border border-amber-500/40 px-4 py-2 rounded-lg font-bold hover:bg-amber-500/30 transition-colors whitespace-nowrap">
+              Set Up
+            </button>
           </div>
         )}
 
@@ -519,9 +589,9 @@ export function FamilyRentVaultLanding() {
                   <p className="font-body-sm text-on-surface-variant">Block-synced treasury status</p>
                 </div>
                 <div className="bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-amber-500 text-sm">lock</span>
+                  <span className="material-symbols-outlined text-amber-500 text-sm">{settlementReady ? "lock_open" : "lock"}</span>
                   <span className="font-label-caps text-label-caps text-amber-500">
-                    {settlementReady ? "Settlement Open" : "Status: Time-Locked"}
+                    {vaultConfig ? (settlementReady ? "Settlement Open" : "Status: Time-Locked") : "No Vault"}
                   </span>
                 </div>
               </div>
@@ -534,7 +604,7 @@ export function FamilyRentVaultLanding() {
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                     <span className="font-display-lg text-2xl text-white">{vaultBalance.toLocaleString()}</span>
-                    <span className="font-label-caps text-xs text-on-surface-variant">OF {targetGoal.toLocaleString()} USDCx</span>
+                    <span className="font-label-caps text-xs text-on-surface-variant">OF {goal.toLocaleString()} USDCx</span>
                   </div>
                 </div>
               </div>
@@ -542,11 +612,14 @@ export function FamilyRentVaultLanding() {
               <div className="grid grid-cols-2 gap-4 mt-8 pt-8 border-t border-outline-variant">
                 <div>
                   <p className="font-label-caps text-on-surface-variant mb-1">Current Block</p>
-                  <p className="font-data-mono text-primary">#{currentBlock.toLocaleString()}</p>
+                  <p className="font-data-mono text-primary">{currentBlock > 0 ? `#${currentBlock.toLocaleString()}` : "—"}</p>
                 </div>
                 <div className="text-right">
                   <p className="font-label-caps text-on-surface-variant mb-1">Target Unlock</p>
-                  <p className="font-data-mono text-on-surface">#{targetUnlockBlock > 0 ? targetUnlockBlock.toLocaleString() : "—"}</p>
+                  <p className="font-data-mono text-on-surface">{deadlineBlock > 0 ? `#${deadlineBlock.toLocaleString()}` : "—"}</p>
+                  {blocksRemaining > 0 && (
+                    <p className="font-label-caps text-[10px] text-on-surface-variant mt-1">~{blocksToHuman(blocksRemaining)} left</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -570,7 +643,7 @@ export function FamilyRentVaultLanding() {
                 </div>
                 <button
                   onClick={handleContribute}
-                  disabled={busy || !walletAddress}
+                  disabled={busy || !walletAddress || !vaultConfig}
                   className="w-full bg-primary-container text-on-primary-container font-bold py-4 rounded-xl hover:scale-[0.98] transition-transform flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="material-symbols-outlined">bolt</span>
@@ -586,27 +659,29 @@ export function FamilyRentVaultLanding() {
                 <p className="font-body-sm text-on-surface-variant mb-4 max-w-sm">
                   Unlocks automatically when Target Block Height is reached, then routes to the landlord via FlowVault Split.
                 </p>
-                {/* Landlord address */}
+                {/* Landlord (reflects config, read-only) */}
                 <div className="w-full mb-6">
                   <label className="font-label-caps text-on-surface-variant mb-2 block text-left">Landlord Wallet Address</label>
-                  <input
-                    value={landlordAddress}
-                    onChange={(e) => setLandlordAddress(e.target.value)}
-                    placeholder="ST… landlord address"
-                    className="w-full bg-[#09090b] border border-zinc-800 text-white p-3 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono text-sm"
-                  />
+                  <div className="w-full bg-[#09090b] border border-zinc-800 text-white p-3 rounded-lg font-data-mono text-sm flex items-center justify-between">
+                    <span className={vaultConfig?.landlord ? "" : "text-zinc-600"}>
+                      {vaultConfig?.landlord || "Not set — configure in Launch Your Vault"}
+                    </span>
+                    <button onClick={() => setShowVaultSetup(true)} className="font-label-caps text-primary hover:underline">
+                      Edit
+                    </button>
+                  </div>
                 </div>
                 <button
                   onClick={handleSettleAndRoute}
-                  disabled={busy || !settlementReady || !landlordAddress.trim()}
-                  className={`w-full font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all ${settlementReady && landlordAddress.trim() ? "bg-primary-container text-on-primary-container hover:scale-[0.98] cursor-pointer" : "bg-zinc-800/50 text-zinc-500 cursor-not-allowed opacity-50"}`}
+                  disabled={busy || !settlementReady || !vaultConfig}
+                  className={`w-full font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all ${settlementReady && vaultConfig ? "bg-primary-container text-on-primary-container hover:scale-[0.98] cursor-pointer" : "bg-zinc-800/50 text-zinc-500 cursor-not-allowed opacity-50"}`}
                 >
                   <span className="material-symbols-outlined">{settlementReady ? "lock_open" : "lock"}</span>
                   {busy ? "Awaiting wallet…" : "Settle Rent & Route Funds"}
                 </button>
-                {!settlementReady && (
+                {!settlementReady && vaultConfig && currentBlock > 0 && (
                   <p className="font-body-sm text-on-surface-variant mt-3">
-                    Locked until block #{targetUnlockBlock.toLocaleString()} (current #{currentBlock.toLocaleString()}).
+                    Locked until block #{deadlineBlock.toLocaleString()} ({blocksToHuman(blocksRemaining)} left, current #{currentBlock.toLocaleString()}).
                   </p>
                 )}
               </div>
@@ -615,16 +690,18 @@ export function FamilyRentVaultLanding() {
 
           {/* ===== Right Column ===== */}
           <div className="space-y-stack-lg">
-            {/* Family Registry */}
             <div className="glass-panel p-stack-lg rounded-xl h-full flex flex-col">
               <div className="flex items-center justify-between mb-8">
                 <h3 className="font-headline-md text-headline-md text-white">Family Registry</h3>
-                <span className="font-label-caps text-primary">
-                  {contributorsList.length} Active {contributorsList.length === 1 ? "Sibling" : "Siblings"}
-                </span>
+                <span className="font-label-caps text-primary">{contributorsList.length} Active {contributorsList.length === 1 ? "Sibling" : "Siblings"}</span>
               </div>
 
               <div className="space-y-4 flex-grow">
+                {contributorsList.length === 0 && (
+                  <div className="p-6 border border-dashed border-zinc-800 rounded-lg text-center text-on-surface-variant font-body-sm">
+                    No contributors yet. Add a sibling below.
+                  </div>
+                )}
                 {contributorsList.map((c) => (
                   <div key={c.id} className="flex items-center justify-between p-4 bg-surface-container rounded-lg border border-outline-variant hover:border-primary/30 transition-colors group">
                     <div className="flex items-center gap-4">
@@ -648,12 +725,8 @@ export function FamilyRentVaultLanding() {
                     <input value={siblingName} onChange={(e) => setSiblingName(e.target.value)} placeholder="Sibling name" className="w-full bg-[#09090b] border border-zinc-800 text-white p-3 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-body-base" />
                     <input value={siblingAddress} onChange={(e) => setSiblingAddress(e.target.value)} placeholder="ST… wallet address" className="w-full bg-[#09090b] border border-zinc-800 text-white p-3 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono text-sm" />
                     <div className="flex gap-3">
-                      <button onClick={handleJoinVault} disabled={!siblingName.trim() || !siblingAddress.trim()} className="flex-1 bg-primary-container text-on-primary-container font-bold py-3 rounded-lg hover:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
-                        Add Sibling
-                      </button>
-                      <button onClick={() => { setIsAddingSibling(false); setSiblingName(""); setSiblingAddress(""); }} className="px-4 border border-zinc-700 text-zinc-400 font-medium py-3 rounded-lg hover:bg-zinc-900 transition-colors">
-                        Cancel
-                      </button>
+                      <button onClick={handleJoinVault} disabled={!siblingName.trim() || !siblingAddress.trim()} className="flex-1 bg-primary-container text-on-primary-container font-bold py-3 rounded-lg hover:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed">Add Sibling</button>
+                      <button onClick={() => { setIsAddingSibling(false); setSiblingName(""); setSiblingAddress(""); }} className="px-4 border border-zinc-700 text-zinc-400 font-medium py-3 rounded-lg hover:bg-zinc-900 transition-colors">Cancel</button>
                     </div>
                   </div>
                 ) : (
@@ -664,7 +737,6 @@ export function FamilyRentVaultLanding() {
                 )}
               </div>
 
-              {/* Recent Activity */}
               <div className="mt-12 bg-black rounded-xl overflow-hidden border border-zinc-800">
                 <div className="p-6 border-b border-zinc-800">
                   <p className="font-label-caps text-on-surface-variant">Recent Activity</p>
@@ -673,16 +745,9 @@ export function FamilyRentVaultLanding() {
                   <div className="px-6 py-4 flex items-center justify-between border-b border-zinc-900/50">
                     <div className="flex items-center gap-3">
                       <span className="material-symbols-outlined text-primary text-sm">receipt_long</span>
-                      <span className="font-body-sm">Alice contributed 50 USDCx</span>
+                      <span className="font-body-sm">Vault created</span>
                     </div>
-                    <span className="font-data-mono text-xs text-zinc-500">2h ago</span>
-                  </div>
-                  <div className="px-6 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="material-symbols-outlined text-primary text-sm">receipt_long</span>
-                      <span className="font-body-sm">Bob joined the Vault</span>
-                    </div>
-                    <span className="font-data-mono text-xs text-zinc-500">5h ago</span>
+                    <span className="font-data-mono text-xs text-zinc-500">{vaultConfig ? "just now" : "—"}</span>
                   </div>
                 </div>
               </div>
@@ -690,6 +755,125 @@ export function FamilyRentVaultLanding() {
           </div>
         </div>
       </main>
+
+      {/* ====================== Vault Setup Modal ====================== */}
+      {showVaultSetup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowVaultSetup(false)}>
+          <div
+            className="glass-panel rounded-xl p-stack-lg w-full max-w-md max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-headline-md text-headline-md text-white">
+                {vaultConfig ? "Edit Vault Settings" : "Launch Your Vault"}
+              </h3>
+              <button onClick={() => setShowVaultSetup(false)} className="text-zinc-400 hover:text-white">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Goal */}
+              <div>
+                <label className="font-label-caps text-on-surface-variant mb-2 block">Rent Goal (USDCx)</label>
+                <input
+                  type="number"
+                  value={setupGoal}
+                  onChange={(e) => setSetupGoal(e.target.value)}
+                  placeholder="1000"
+                  className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono"
+                />
+                <p className="font-label-caps text-[10px] text-on-surface-variant mt-2">
+                  The total amount the family is saving toward.
+                </p>
+              </div>
+
+              {/* Deadline */}
+              <div>
+                <label className="font-label-caps text-on-surface-variant mb-2 block">Deadline (Unlock Block)</label>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setSetupDeadlineMode("duration")}
+                    className={`p-3 rounded-lg border font-label-caps transition-colors ${setupDeadlineMode === "duration" ? "bg-primary-container text-on-primary-container border-primary-container" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
+                  >
+                    Duration
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSetupDeadlineMode("absolute")}
+                    className={`p-3 rounded-lg border font-label-caps transition-colors ${setupDeadlineMode === "absolute" ? "bg-primary-container text-on-primary-container border-primary-container" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
+                  >
+                    Absolute Block
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  value={setupDeadlineValue}
+                  onChange={(e) => setSetupDeadlineValue(e.target.value)}
+                  placeholder={setupDeadlineMode === "duration" ? String(DAY_BLOCKS) : "8820000"}
+                  className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono mb-3"
+                />
+                {/* Duration presets */}
+                {setupDeadlineMode === "duration" && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {[
+                      ["1 hour", 6],
+                      ["1 day", DAY_BLOCKS],
+                      ["1 week", DAY_BLOCKS * 7],
+                      ["1 month", DAY_BLOCKS * 30],
+                    ].map(([label, val]) => (
+                      <button
+                        key={String(val)}
+                        type="button"
+                        onClick={() => setSetupDeadlineValue(String(val))}
+                        className={`px-3 py-1.5 rounded-lg border font-label-caps text-xs transition-colors ${setupDeadlineValue === String(val) ? "bg-primary/20 border-primary text-primary" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
+                      >
+                        {label} <span className="opacity-60">· {val}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="font-label-caps text-[10px] text-on-surface-variant">
+                  {setupDeadlineMode === "duration"
+                    ? `Adds blocks to the current chain height. Resolves to #${resolvedAbsolute.toLocaleString()}`
+                    : "Enter a specific future Stacks block height."}
+                  {currentBlock > 0 && ` (current: #${currentBlock.toLocaleString()}).`}
+                  {" "}~{DAY_BLOCKS} blocks ≈ 1 day.
+                </p>
+              </div>
+
+              {/* Landlord */}
+              <div>
+                <label className="font-label-caps text-on-surface-variant mb-2 block">Landlord Wallet Address</label>
+                <input
+                  value={setupLandlord}
+                  onChange={(e) => setSetupLandlord(e.target.value)}
+                  placeholder="ST… or SP…"
+                  className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono text-sm"
+                />
+                <p className="font-label-caps text-[10px] text-on-surface-variant mt-2">
+                  Where the rent gets routed after the deadline (FlowVault Split).
+                </p>
+              </div>
+
+              {setupError && (
+                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 font-body-sm">
+                  {setupError}
+                </div>
+              )}
+
+              <button
+                onClick={createVault}
+                disabled={currentBlock <= 0 && setupDeadlineMode === "duration"}
+                className="w-full bg-primary-container text-on-primary-container font-bold py-4 rounded-xl hover:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {currentBlock <= 0 && setupDeadlineMode === "duration" ? "Connect wallet to read block height" : (vaultConfig ? "Update Vault" : "Create Vault")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ============================== Footer ============================== */}
       <footer className="mt-20 border-t border-outline-variant bg-background">
