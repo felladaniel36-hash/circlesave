@@ -120,7 +120,7 @@ export function CircleSave() {
 
   // --- Create circle (stable — reads chain block from ref) ---
   const handleCreate = useCallback(
-    (name: string, target: number, contribution: number) => {
+    (name: string, target: number, contribution: number, autoDispatch: boolean) => {
       const addr = addressRef.current;
       const block = chainRef.current.currentBlock;
       if (!addr || block <= 0) {
@@ -134,6 +134,7 @@ export function CircleSave() {
         lockBlock: computeLockBlock(block),
         createdAt: Date.now(),
         creatorAddress: addr,
+        autoDispatch,
       };
       setConfig(cfg);
       setEnded(false);
@@ -142,9 +143,9 @@ export function CircleSave() {
       saveJSON(STORAGE.config, cfg);
       saveJSON(STORAGE.ended, false);
       saveJSON(STORAGE.turn, 0);
-      addLedger(`Circle "${name}" created — target ${target} ${UNIT}, ${membersRef.current.length} members`);
+      addLedger(`Circle "${name}" created — target ${target} ${UNIT}, ${membersRef.current.length} members${autoDispatch ? ", auto-payout ON" : ""}`);
       closeModal();
-      setToast({ kind: "ok", msg: `Circle live! Target: ${target} ${UNIT}. Day 1 begins now.` });
+      setToast({ kind: "ok", msg: `Circle live! Target: ${target} ${UNIT}.${autoDispatch ? " Auto-payout enabled." : ""} Day 1 begins now.` });
     },
     [addLedger, closeModal],
   );
@@ -305,22 +306,46 @@ export function CircleSave() {
   const poolReady = isActive && config ? chain.poolBalance >= config.targetPool : false;
   const turnMember = members[turnIndex];
 
-  // Reactive target-reached trigger — fires a notification ONCE when the
-  // aggregated pool crosses the target, so the turn-by-turn routing is
-  // surfaced to the user immediately.
+  // Ref to handleDispatch so the target-reached effect can call the latest
+  // version without depending on it (avoids rebuild loops).
+  const dispatchRef = useRef(handleDispatch);
+  useEffect(() => { dispatchRef.current = handleDispatch; }, [handleDispatch]);
+  // Ref to busy so the effect can check it without depending on it.
+  const busyRef = useRef(busy);
+  useEffect(() => { busyRef.current = busy; }, [busy]);
+
+  // Reactive target-reached trigger.
+  //   • autoDispatch ON  → automatically triggers the payout flow (Leather
+  //     popup appears — you just approve. Blockchains can't move money
+  //     without your signature.)
+  //   • autoDispatch OFF → shows a notification prompting manual dispatch.
   const targetReachedRef = useRef(false);
   useEffect(() => {
     if (poolReady && !targetReachedRef.current && config) {
       targetReachedRef.current = true;
-      setToast({
-        kind: "ok",
-        msg: `🎯 Target reached! ${config.targetPool} ${UNIT} pooled across all members. ${turnMember?.name} is ready to receive — tap "Dispatch Payout".`,
-      });
+      if (config.autoDispatch && !busyRef.current) {
+        setToast({
+          kind: "info",
+          msg: `🎯 Target reached! Auto-dispatching payout to ${turnMember?.name} — approve in your wallet.`,
+        });
+        addLedger(`🎯 Target reached — auto-dispatching to ${turnMember?.name}`);
+        const t = window.setTimeout(() => {
+          dispatchRef.current();
+        }, 800);
+        return () => window.clearTimeout(t);
+      } else {
+        setToast({
+          kind: "ok",
+          msg: `🎯 Target reached! ${config.targetPool} ${UNIT} pooled. Please dispatch the payout to ${turnMember?.name}.`,
+        });
+        addLedger(`🎯 Target reached — awaiting manual dispatch to ${turnMember?.name}`);
+      }
     }
     if (!poolReady) {
-      targetReachedRef.current = false; // reset so it can fire again next round
+      targetReachedRef.current = false;
     }
-  }, [poolReady, config, turnMember]);
+  }, [poolReady, config, turnMember, addLedger]);
+
   const isCreator = !!address && address === config?.creatorAddress;
   const dayCount = config && !ended
     ? Math.max(1, Math.floor((Date.now() - config.createdAt) / 86400000) + 1)
@@ -495,6 +520,7 @@ export function CircleSave() {
         closing={modalClosing}
         walletConnected={!!address}
         hasConfig={!!config}
+        initialAutoDispatch={config?.autoDispatch ?? false}
         onClose={closeModal}
         onCreate={handleCreate}
       />

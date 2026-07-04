@@ -66,6 +66,7 @@ export interface CircleConfig {
   lockBlock: number;
   createdAt: number;
   creatorAddress: string;
+  autoDispatch: boolean; // auto-trigger payout flow when target reached
 }
 
 export interface LedgerEntry {

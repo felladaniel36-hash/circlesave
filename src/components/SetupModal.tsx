@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { UNIT } from "@/lib/config";
 
 interface SetupModalProps {
@@ -8,8 +8,9 @@ interface SetupModalProps {
   closing: boolean;
   walletConnected: boolean;
   hasConfig: boolean;
+  initialAutoDispatch?: boolean;
   onClose: () => void;
-  onCreate: (name: string, target: number, contribution: number) => void;
+  onCreate: (name: string, target: number, contribution: number, autoDispatch: boolean) => void;
 }
 
 export function SetupModal({
@@ -17,12 +18,14 @@ export function SetupModal({
   closing,
   walletConnected,
   hasConfig,
+  initialAutoDispatch = false,
   onClose,
   onCreate,
 }: SetupModalProps) {
   const [name, setName] = useState("Family Circle");
   const [target, setTarget] = useState("1200");
   const [contribution, setContribution] = useState("10");
+  const [autoDispatch, setAutoDispatch] = useState(initialAutoDispatch);
   const [error, setError] = useState("");
 
   const handleCreate = useCallback(() => {
@@ -33,8 +36,8 @@ export function SetupModal({
     if (!t || t <= 0) return setError("Enter a valid target pool.");
     if (t > 99999) return setError("Target too high (max 99999).");
     if (!c || c <= 0) return setError("Enter a valid contribution amount.");
-    onCreate(name.trim(), t, c);
-  }, [name, target, contribution, onCreate]);
+    onCreate(name.trim(), t, c, autoDispatch);
+  }, [name, target, contribution, autoDispatch, onCreate]);
 
   if (!open) return null;
 
@@ -101,6 +104,40 @@ export function SetupModal({
             </div>
           </div>
           <p className="text-[10px] opacity-50 -mt-2">(Min 0 Max 99999)</p>
+
+          {/* Auto-dispatch toggle */}
+          <div className="rounded-lg bg-surface-container border border-outline-variant p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-base">
+                  bolt
+                </span>
+                <span className="text-[10px] uppercase tracking-wider text-primary font-bold">
+                  Automatic Payout
+                </span>
+              </div>
+              {/* Toggle switch */}
+              <button
+                type="button"
+                onClick={() => setAutoDispatch(!autoDispatch)}
+                className={`relative w-12 h-6 rounded-full transition-colors ${
+                  autoDispatch ? "bg-primary-container" : "bg-zinc-700"
+                }`}
+                aria-label="Toggle automatic payout"
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    autoDispatch ? "translate-x-6" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-sm text-on-surface-variant leading-relaxed">
+              {autoDispatch
+                ? "When the pool hits the target, the payout flow starts automatically — you just approve it in your wallet. The pool resets for the next member."
+                : "When the pool hits the target, you'll get a notification to manually dispatch the payout to the next member."}
+            </p>
+          </div>
 
           {/* No-duration info */}
           <div className="rounded-lg bg-surface-container border border-outline-variant p-4">
