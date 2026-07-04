@@ -50,3 +50,63 @@
     transform: scale(1.2);
   }
 }
+
+/* ---------------------------------------------------------------- modal slide animations
+   Enter: slides up from the bottom of the screen to center.
+   Exit:  slides from center up to the top of the screen. */
+
+@keyframes frv-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes frv-modal-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+
+@keyframes frv-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes frv-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.frv-modal-enter {
+  animation: frv-modal-in 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.frv-modal-exit {
+  animation: frv-modal-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+.frv-backdrop-enter {
+  animation: frv-backdrop-in 0.3s ease;
+}
+
+.frv-backdrop-exit {
+  animation: frv-backdrop-out 0.3s ease forwards;
+}

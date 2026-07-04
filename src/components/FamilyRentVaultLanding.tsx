@@ -118,7 +118,43 @@ function blocksToDate(targetBlock: number, currentBlockNum: number): string {
   const offsetMs = offsetBlocks * BLOCK_TIME_MIN * 60000;
   const targetMs = Date.now() + offsetMs;
   const d = new Date(targetMs);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (Number.isNaN(d.getTime())) return "—";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+/** Mask raw typed input into dd/mm/yyyy as the user types (auto-inserts slashes). */
+function maskDdMmYyyy(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length > 4) return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  if (digits.length > 2) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return digits;
+}
+
+/** Parse a dd/mm/yyyy string into yyyy-mm-dd. Returns null if invalid/not a real date. */
+function parseDdMmYyyy(display: string): string | null {
+  const m = display.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const dd = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  const yyyy = parseInt(m[3], 10);
+  const iso = `${m[3]}-${m[2]}-${m[1]}`;
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return null;
+  // Guard against rollover dates (e.g. 31/02/2026)
+  if (d.getDate() !== dd || d.getMonth() + 1 !== mm || d.getFullYear() !== yyyy) return null;
+  return iso;
+}
+
+/** Format yyyy-mm-dd → dd/mm/yyyy for display. */
+function toDdMmYyyy(iso: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "—";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,29 +182,29 @@ export function FamilyRentVaultLanding() {
 
   // --- Setup form fields ---
   const [setupGoal, setSetupGoal] = useState("1000");
-  const [setupDeadlineDate, setSetupDeadlineDate] = useState(""); // yyyy-mm-dd (calendar end date)
+  const [setupEndDateDisplay, setSetupEndDateDisplay] = useState(""); // dd/mm/yyyy (user types this)
   const [setupStartDate, setSetupStartDate] = useState(""); // yyyy-mm-dd (auto = today when modal opens)
   const [setupLandlord, setSetupLandlord] = useState("");
   const [setupError, setSetupError] = useState("");
 
-  // Helper to format yyyy-mm-dd → "Jul 3, 2026"
-  const fmtDate = useCallback((iso: string) => {
-    if (!iso) return "—";
-    const d = new Date(iso + "T00:00:00");
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  }, []);
+  // Derived: the parsed end date (yyyy-mm-dd) from the dd/mm/yyyy display, or null
+  const setupDeadlineDate = parseDdMmYyyy(setupEndDateDisplay);
 
-  // Days between start and end date (human label like "1 month and 2 days")
+  // Helper to format yyyy-mm-dd → dd/mm/yyyy
+  const fmtDate = useCallback((iso: string) => toDdMmYyyy(iso), []);
+
+  // Days between start and end date (whole calendar days). Min 1 day required.
+  // Returns human label like "1 month and 2 days", or "" if < 1 day.
   const fmtDuration = useCallback((startIso: string, endIso: string) => {
     if (!startIso || !endIso) return "";
     const s = new Date(startIso + "T00:00:00").getTime();
-    const e = new Date(endIso + "T23:59:59").getTime();
-    if (Number.isNaN(s) || Number.isNaN(e) || e <= s) return "";
+    const e = new Date(endIso + "T00:00:00").getTime();
+    if (Number.isNaN(s) || Number.isNaN(e) || e < s) return "";
     const days = Math.round((e - s) / (24 * 3600 * 1000));
+    if (days < 1) return ""; // minimum 1 day
 
     const months = Math.floor(days / 30);
     const remDays = days % 30;
-
     const monthLabel = (m: number) => (m === 1 ? "1 month" : `${m} months`);
     const dayLabel = (d: number) => (d === 1 ? "1 day" : `${d} days`);
 
@@ -177,10 +213,35 @@ export function FamilyRentVaultLanding() {
     return `${monthLabel(months)} and ${dayLabel(remDays)}`;
   }, []);
 
-  // Open the modal — auto-set the start date to today
+  // Number of whole days between start and end (for the live "X days" readout)
+  const calcDays = useCallback((startIso: string, endIso: string): number | null => {
+    if (!startIso || !endIso) return null;
+    const s = new Date(startIso + "T00:00:00").getTime();
+    const e = new Date(endIso + "T00:00:00").getTime();
+    if (Number.isNaN(s) || Number.isNaN(e) || e < s) return null;
+    const days = Math.round((e - s) / (24 * 3600 * 1000));
+    return days >= 1 ? days : null;
+  }, []);
+
+  // Close the modal with exit animation (center → top), then unmount
+  const [modalClosing, setModalClosing] = useState(false);
+  const closeModal = useCallback(() => {
+    setModalClosing(true);
+    window.setTimeout(() => {
+      setShowVaultSetup(false);
+      setModalClosing(false);
+    }, 300);
+  }, []);
+
+  // Open the modal — auto-set the start date to today + default end (today + 7)
   const openVaultSetup = useCallback(() => {
-    setSetupStartDate(new Date().toISOString().slice(0, 10));
+    const today = new Date().toISOString().slice(0, 10);
+    const defaultEnd = new Date();
+    defaultEnd.setDate(defaultEnd.getDate() + 7);
+    setSetupStartDate(today);
+    setSetupEndDateDisplay(toDdMmYyyy(defaultEnd.toISOString().slice(0, 10)));
     setSetupError("");
+    setModalClosing(false);
     setShowVaultSetup(true);
   }, []);
 
@@ -201,11 +262,6 @@ export function FamilyRentVaultLanding() {
 
   // --- Restore session + local persistence on mount ---
   useEffect(() => {
-    // Default calendar date = 7 days from today
-    const defaultDate = new Date();
-    defaultDate.setDate(defaultDate.getDate() + 7);
-    setSetupDeadlineDate(defaultDate.toISOString().slice(0, 10));
-
     if (isConnected()) {
       const stored = getLocalStorage();
       const addr = extractStxAddress(stored?.addresses);
@@ -317,7 +373,7 @@ export function FamilyRentVaultLanding() {
   const createVault = useCallback(() => {
     setSetupError("");
 
-    // Validate goal
+    // Validate goal (Min 0, Max 99999 for this test build)
     let goalMicro: bigint;
     try {
       goalMicro = tokenToMicro(setupGoal);
@@ -325,6 +381,8 @@ export function FamilyRentVaultLanding() {
       return setSetupError("Enter a valid goal amount in USDCx (e.g. 1000).");
     }
     if (goalMicro <= 0n) return setSetupError("Goal amount must be greater than zero.");
+    const goalTokens = Number(goalMicro) / MICRO;
+    if (goalTokens > 99999) return setSetupError("Goal amount too high (max 99999 for this test).");
 
     // Validate landlord
     const landlord = setupLandlord.trim();
@@ -332,20 +390,20 @@ export function FamilyRentVaultLanding() {
     if (!/^(ST|SP|SM|SN)[0-9A-Z]{30,}/i.test(landlord))
       return setSetupError("Wallet address looks invalid (should start with ST/SP/SM/SN).");
 
-    // Resolve deadline block — convert the selected end date to a block height
+    // Resolve deadline block — convert the typed end date (dd/mm/yyyy) to a block height.
     // (the block math stays here in the background; the user never sees it)
-    if (!setupDeadlineDate) return setSetupError("Pick an end date for your savings period.");
+    if (!setupDeadlineDate) return setSetupError("Enter an end date in dd/mm/yyyy format.");
+    const days = calcDays(setupStartDate, setupDeadlineDate);
+    if (days === null || days < 1) return setSetupError("End date must be at least 1 day after today.");
     const targetMs = new Date(setupDeadlineDate + "T23:59:59").getTime();
     const nowMs = Date.now();
-    if (Number.isNaN(targetMs)) return setSetupError("Invalid date selected.");
-    if (targetMs <= nowMs) return setSetupError("Pick a future end date.");
     if (currentBlock <= 0)
       return setSetupError("Connect your wallet first so we can set the lock.");
     const diffMin = Math.max(1, Math.round((targetMs - nowMs) / 60000));
     const deadlineBlock = currentBlock + Math.max(1, Math.round(diffMin / BLOCK_TIME_MIN));
 
     const cfg: VaultConfig = {
-      goal: Number(goalMicro) / MICRO,
+      goal: goalTokens,
       deadlineBlock,
       landlord,
       createdAt: Date.now(),
@@ -356,9 +414,9 @@ export function FamilyRentVaultLanding() {
     } catch {
       /* ignore */
     }
-    setShowVaultSetup(false);
-    setStatus({ kind: "ok", msg: `Vault created! Goal: ${cfg.goal} USDCx · saves until ${fmtDate(setupDeadlineDate)}.` });
-  }, [setupGoal, setupLandlord, setupDeadlineDate, currentBlock, fmtDate]);
+    closeModal();
+    setStatus({ kind: "ok", msg: `Vault created! Goal: ${cfg.goal} USDCx · saves until ${toDdMmYyyy(setupDeadlineDate)}.` });
+  }, [setupGoal, setupLandlord, setupDeadlineDate, setupStartDate, currentBlock, calcDays, closeModal]);
 
   // =========================================================================
   // (2) DEPOSIT — openContractCall: set-routing-rules (lock) → deposit
@@ -520,8 +578,11 @@ export function FamilyRentVaultLanding() {
   const settlementReady = deadlineBlock > 0 && currentBlock > 0 && currentBlock >= deadlineBlock;
   const blocksRemaining = deadlineBlock > 0 && currentBlock > 0 ? Math.max(0, deadlineBlock - currentBlock) : 0;
 
-  // Human-friendly duration between the setup start/end dates (e.g. "1 month and 2 days")
-  const setupDurationLabel = fmtDuration(setupStartDate, setupDeadlineDate);
+  // Live day count + human duration between setup start/end (dd/mm/yyyy → days)
+  const setupDays = calcDays(setupStartDate, setupDeadlineDate ?? "");
+  const setupDurationLabel = setupDays !== null
+    ? fmtDuration(setupStartDate, setupDeadlineDate ?? "")
+    : "";
 
   // -------------------------------------------------------------------------
   return (
@@ -802,16 +863,19 @@ export function FamilyRentVaultLanding() {
 
       {/* ====================== Vault Setup Modal ====================== */}
       {showVaultSetup && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowVaultSetup(false)}>
+        <div
+          className={`fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm ${modalClosing ? "frv-backdrop-exit" : "frv-backdrop-enter"}`}
+          onClick={closeModal}
+        >
           <div
-            className="glass-panel rounded-xl p-stack-lg w-full max-w-md max-h-[90vh] overflow-y-auto"
+            className={`glass-panel rounded-xl p-stack-lg w-full max-w-md max-h-[90vh] overflow-y-auto ${modalClosing ? "frv-modal-exit" : "frv-modal-enter"}`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-headline-md text-headline-md text-white">
                 {vaultConfig ? "Edit Vault" : "Start Saving"}
               </h3>
-              <button onClick={() => setShowVaultSetup(false)} className="text-zinc-400 hover:text-white">
+              <button onClick={closeModal} className="text-zinc-400 hover:text-white">
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
@@ -827,8 +891,8 @@ export function FamilyRentVaultLanding() {
                   placeholder="1000"
                   className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono"
                 />
-                <p className="font-label-caps text-[10px] text-on-surface-variant mt-2">
-                  The total amount the family is saving toward.
+                <p className="font-label-caps text-[10px] mt-2 opacity-50">
+                  (Min 0 Max 99999)
                 </p>
               </div>
 
@@ -847,33 +911,42 @@ export function FamilyRentVaultLanding() {
                   </div>
                 </div>
 
-                {/* End Date — the calendar picker */}
+                {/* End Date — typeable dd/mm/yyyy with auto-formatting */}
                 <div className="mb-3">
                   <label className="font-label-caps text-on-surface-variant mb-2 block text-[10px]">
-                    End Date <span className="opacity-60 normal-case">(pick your deadline)</span>
+                    End Date <span className="opacity-60 normal-case">(dd/mm/yyyy — type your deadline)</span>
                   </label>
                   <input
-                    type="date"
-                    value={setupDeadlineDate}
-                    min={setupStartDate || new Date().toISOString().slice(0, 10)}
-                    onChange={(e) => setSetupDeadlineDate(e.target.value)}
+                    type="text"
+                    inputMode="numeric"
+                    value={setupEndDateDisplay}
+                    onChange={(e) => setSetupEndDateDisplay(maskDdMmYyyy(e.target.value))}
+                    placeholder="dd/mm/yyyy"
+                    maxLength={10}
                     className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono"
                   />
                 </div>
 
-                {/* Friendly duration summary */}
-                {setupDurationLabel ? (
+                {/* Live duration readout (days + friendly label) */}
+                {setupDays !== null ? (
                   <div className="rounded-lg bg-primary/10 border border-primary/30 p-4 flex items-center gap-3">
                     <span className="material-symbols-outlined text-primary">schedule</span>
                     <div>
                       <p className="font-label-caps text-primary">Your savings duration</p>
-                      <p className="font-body-base text-white font-bold">{setupDurationLabel}</p>
+                      <p className="font-body-base text-white font-bold">
+                        {setupDays} {setupDays === 1 ? "day" : "days"}{" "}
+                        <span className="font-body-sm font-normal text-on-surface-variant">
+                          ({setupDurationLabel})
+                        </span>
+                      </p>
                     </div>
                   </div>
                 ) : (
                   <div className="rounded-lg bg-zinc-800/40 border border-zinc-800 p-4">
                     <p className="font-label-caps text-[10px] text-on-surface-variant">
-                      Pick an end date above to see your savings duration.
+                      {setupEndDateDisplay && !setupDeadlineDate
+                        ? "Enter a valid date (dd/mm/yyyy), at least 1 day from today."
+                        : "Enter an end date above to see your savings duration (minimum 1 day)."}
                     </p>
                   </div>
                 )}
