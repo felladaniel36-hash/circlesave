@@ -1,7 +1,6 @@
-// ---------------------------------------------------------------------------
-// Wallet helpers — robustly extract a Stacks (STX) principal from the varied
-// shapes returned by @stacks/connect (Leather / Hiro).
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Wallet helpers — robustly extract a Stacks address from @stacks/connect
+// ===========================================================================
 
 const STX_PREFIXES = ["ST", "SP", "SM", "SN"];
 
@@ -14,9 +13,7 @@ function isStacksAddress(value: unknown): value is string {
 
 function searchForStacksAddress(input: unknown): string | null {
   if (!input) return null;
-
   if (isStacksAddress(input)) return input;
-
   if (Array.isArray(input)) {
     for (const item of input) {
       const found = searchForStacksAddress(item);
@@ -24,7 +21,6 @@ function searchForStacksAddress(input: unknown): string | null {
     }
     return null;
   }
-
   if (typeof input === "object") {
     const record = input as Record<string, unknown>;
     if (isStacksAddress(record.address)) return record.address;
@@ -38,7 +34,6 @@ function searchForStacksAddress(input: unknown): string | null {
       if (found) return found;
     }
   }
-
   return null;
 }
 

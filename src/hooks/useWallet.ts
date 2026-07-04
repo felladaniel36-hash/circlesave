@@ -1,51 +1,64 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+// ===========================================================================
+// useWallet — connect/disconnect with timeout + session persistence
+// ===========================================================================
+
+import { useState, useEffect, useCallback } from "react";
 import {
   connect,
   disconnect,
-  getLocalStorage,
   isConnected,
+  getLocalStorage,
 } from "@stacks/connect";
-import { NETWORK } from "@/lib/constants";
+import { NETWORK } from "@/lib/config";
 import { extractStxAddress } from "@/lib/wallet";
 
 export function useWallet() {
   const [address, setAddress] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [connecting, setConnecting] = useState(false);
 
+  // Restore session on mount
   useEffect(() => {
-    if (!isConnected()) return;
-    const stored = getLocalStorage();
-    const addr = extractStxAddress(stored?.addresses);
-    if (addr) setAddress(addr);
+    if (isConnected()) {
+      const stored = getLocalStorage();
+      const addr = extractStxAddress(stored?.addresses);
+      if (addr) setAddress(addr);
+    }
   }, []);
 
   const connectWallet = useCallback(async (): Promise<string | null> => {
-    setError(null);
-    setIsConnecting(true);
+    setError("");
+    setConnecting(true);
     try {
-      const res = await connect({ network: NETWORK, forceWalletSelect: true });
-      const addr = extractStxAddress(res.addresses);
+      // Race against a 20s timeout so the button can never hang forever
+      const connectPromise = connect({ network: NETWORK });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        window.setTimeout(() => reject(new Error("WALLET_TIMEOUT")), 20000),
+      );
+      const res = await Promise.race([connectPromise, timeoutPromise]);
+      const addr = extractStxAddress(res?.addresses);
       if (!addr) {
-        setError(
-          "No Stacks account found. Select an STX account in your wallet, or install Leather / Hiro."
-        );
+        setError("No Stacks account found. Select an STX account in your wallet.");
         return null;
       }
       setAddress(addr);
       return addr;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setError(
-        /reject|cancel|denied|abort/i.test(msg)
-          ? "Wallet connection cancelled."
-          : `Wallet error: ${msg}`
-      );
+      if (msg === "WALLET_TIMEOUT") {
+        setError(
+          "Wallet didn't respond in 20s. Make sure Xverse/Leather is installed and enabled, then allow popups for this site.",
+        );
+      } else if (/reject|cancel|denied|abort/i.test(msg)) {
+        setError("Connection cancelled.");
+      } else {
+        setError(`Wallet error: ${msg}`);
+      }
       return null;
     } finally {
-      setIsConnecting(false);
+      setConnecting(false);
     }
   }, []);
 
@@ -56,15 +69,15 @@ export function useWallet() {
       /* ignore */
     }
     setAddress(null);
-    setError(null);
+    setError("");
   }, []);
 
   return {
     address,
-    isConnecting,
     error,
+    connecting,
     connectWallet,
     disconnectWallet,
-    clearError: () => setError(null),
+    clearError: () => setError(""),
   };
 }

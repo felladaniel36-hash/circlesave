@@ -29,100 +29,53 @@
   }
 
   .pulse-green {
-    animation: frv-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    animation: cs-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 
   .progress-ring-circle {
-    transition: stroke-dashoffset 0.35s;
+    transition: stroke-dashoffset 0.9s cubic-bezier(0.22, 1, 0.36, 1);
     transform: rotate(-90deg);
     transform-origin: 50% 50%;
   }
 }
 
-@keyframes frv-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.5;
-    transform: scale(1.2);
-  }
+@keyframes cs-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.2); }
 }
 
-/* ---------------------------------------------------------------- modal slide animations
-   Enter: slides up from the bottom of the screen to center.
-   Exit:  slides from center up to the top of the screen. */
-
-@keyframes frv-modal-in {
-  from {
-    opacity: 0;
-    transform: translateY(100%);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes frv-modal-out {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-100%);
-  }
-}
-
-@keyframes frv-backdrop-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes frv-backdrop-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
-.frv-modal-enter {
-  animation: frv-modal-in 0.34s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.frv-modal-exit {
-  animation: frv-modal-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards;
-}
-
-.frv-backdrop-enter {
-  animation: frv-backdrop-in 0.3s ease;
-}
-
-.frv-backdrop-exit {
-  animation: frv-backdrop-out 0.3s ease forwards;
-}
-
-/* ---------------------------------------------------------------- CircleSave logo
-   Slow, subtle rotation suggesting the rotating savings circle. */
-
+/* Logo rotation — symbolizes the rotating savings circle */
 .cs-logo-spin {
   animation: cs-rotate 14s linear infinite;
 }
 
 @keyframes cs-rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
+
+/* Modal slide: bottom → center on open, center → top on close */
+@keyframes cs-modal-in {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cs-modal-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-100%); }
+}
+
+@keyframes cs-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes cs-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.frv-modal-enter { animation: cs-modal-in 0.34s cubic-bezier(0.16, 1, 0.3, 1); }
+.frv-modal-exit { animation: cs-modal-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards; }
+.frv-backdrop-enter { animation: cs-backdrop-in 0.3s ease; }
+.frv-backdrop-exit { animation: cs-backdrop-out 0.3s ease forwards; }

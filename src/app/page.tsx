@@ -1,7 +1,5 @@
-import { CircleSave } from "@/components/CircleSave";
-
-export const dynamic = "force-dynamic";
+import { CircleSaveWrapper } from "@/components/CircleSaveWrapper";
 
 export default function HomePage() {
-  return <CircleSave />;
+  return <CircleSaveWrapper />;
 }

@@ -1,57 +1,103 @@
-import { microToToken } from "flowvault-sdk";
-import { BLOCK_TIME_SECONDS } from "./constants";
+// ===========================================================================
+// Formatting & conversion helpers
+// ===========================================================================
 
-/** Group an integer string with thousands separators without float loss. */
-function withThousands(s: string): string {
-  const neg = s.startsWith("-");
-  const digits = neg ? s.slice(1) : s;
-  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return neg ? "-" + grouped : grouped;
+import { DECIMALS, MICRO, EXPLORER, NETWORK, BLOCK_TIME_MIN } from "./config";
+
+// --- Amount conversion ---
+
+export function tokenToMicro(amountStr: string): bigint {
+  const trimmed = (amountStr || "").trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error("Enter a valid amount (e.g. 10 or 1.5).");
+  }
+  const [whole, frac = ""] = trimmed.split(".");
+  if (frac.length > DECIMALS) {
+    throw new Error(`Maximum ${DECIMALS} decimal places.`);
+  }
+  const padded = frac.padEnd(DECIMALS, "0");
+  return BigInt(whole) * BigInt(MICRO) + BigInt(padded || "0");
 }
 
-export function shortenAddr(addr: string, head = 5, tail = 4): string {
+export function microToToken(micro: number): number {
+  return micro / MICRO;
+}
+
+// --- Display formatting ---
+
+export function fmtNumber(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+export function fmtTokens(micro: number): string {
+  return fmtNumber(micro / MICRO);
+}
+
+export function shortenAddr(addr: string, head = 6, tail = 4): string {
   if (!addr) return "";
   if (addr.length <= head + tail + 1) return addr;
   return `${addr.slice(0, head)}…${addr.slice(-tail)}`;
 }
 
-/** Format a micro-unit number as a human USDCx string with separators. */
-export function fmtUsdc(micro: number): string {
-  if (!Number.isFinite(micro) || micro <= 0) return "0";
-  const token = microToToken(micro);
-  const [whole, frac] = token.split(".");
-  const withSep = withThousands(whole);
-  return frac ? `${withSep}.${frac}` : withSep;
-}
-
-/** Approximate human duration for a number of blocks. */
-export function blocksToHuman(blocks: number): string {
-  if (!Number.isFinite(blocks) || blocks <= 0) return "unlocked";
-  const totalSec = blocks * BLOCK_TIME_SECONDS;
-  const days = Math.floor(totalSec / 86400);
-  const hours = Math.floor((totalSec % 86400) / 3600);
-  const mins = Math.floor((totalSec % 3600) / 60);
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (days === 0 && hours === 0 && mins > 0) parts.push(`${mins}m`);
-  if (parts.length === 0) parts.push("<1m");
-  return `~${parts.join(" ")}`;
-}
-
-export function pct(value: number, total: number): number {
-  if (total <= 0) return 0;
-  return Math.min(100, Math.max(0, (value / total) * 100));
-}
-
-/** Relative time from a unix-seconds timestamp (e.g. burn_block_time). */
-export function timeAgo(unixSeconds: number | null): string {
-  if (!unixSeconds) return "";
-  const now = Math.floor(Date.now() / 1000);
-  const diff = Math.max(0, now - unixSeconds);
+export function timeAgo(timestamp: number): string {
+  const diff = Math.floor((Date.now() - timestamp) / 1000);
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
-  return new Date(unixSeconds * 1000).toLocaleDateString();
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+export function blocksToHuman(blocks: number): string {
+  if (blocks <= 0) return "now";
+  const totalMin = Math.round(blocks * BLOCK_TIME_MIN);
+  const days = Math.floor(totalMin / (24 * 60));
+  const hours = Math.floor((totalMin % (24 * 60)) / 60);
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  return parts.join(" ") || "<1h";
+}
+
+// --- Explorer links ---
+
+export function explorerTxUrl(txid: string): string {
+  const id = txid.startsWith("0x") ? txid : `0x${txid}`;
+  return `${EXPLORER}/txid/${id}?chain=${NETWORK}`;
+}
+
+export function explorerAddrUrl(addr: string): string {
+  return `${EXPLORER}/address/${addr}?chain=${NETWORK}`;
+}
+
+export function explorerContractUrl(): string {
+  return `${EXPLORER}/address/${FLOWVAULT_ADDRESS()}.${FLOWVAULT_NAME()}?chain=${NETWORK}`;
+}
+
+// Local refs to avoid circular import with config
+function FLOWVAULT_ADDRESS() {
+  return "STD7QG84VQQ0C35SZM2EYTHZV4M8FQ0R7YNSQWPD";
+}
+function FLOWVAULT_NAME() {
+  return "flowvault-v2";
+}
+
+// --- LocalStorage helpers ---
+
+export function loadJSON<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveJSON(key: string, value: unknown): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* ignore quota errors */
+  }
 }
