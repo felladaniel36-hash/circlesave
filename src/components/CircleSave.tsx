@@ -213,13 +213,25 @@ export function CircleSave() {
   const connectWallet = useCallback(async () => {
     setWalletError(""); setIsConnecting(true);
     try {
-      const res = await connect({ network: NETWORK, forceWalletSelect: true });
+      // Race the connect() call against a 20s timeout so the button can never
+      // hang forever if the wallet doesn't respond (popup blocked, stale ext, etc).
+      const connectPromise = connect({ network: NETWORK });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        window.setTimeout(() => reject(new Error("WALLET_TIMEOUT")), 20000)
+      );
+      const res = await Promise.race([connectPromise, timeoutPromise]);
       const addr = extractStxAddress(res?.addresses);
-      if (!addr) { setWalletError("No Stacks account found. Select an STX account."); return; }
+      if (!addr) { setWalletError("No Stacks account found. Select an STX account in your wallet."); return; }
       setWalletAddress(addr);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setWalletError(/reject|cancel|denied|abort/i.test(msg) ? "Connection cancelled." : msg);
+      if (msg === "WALLET_TIMEOUT") {
+        setWalletError("Wallet didn't respond in 20s. Make sure Xverse is installed, open the extension, and allow popups for this site, then try again.");
+      } else if (/reject|cancel|denied|abort/i.test(msg)) {
+        setWalletError("Connection cancelled.");
+      } else {
+        setWalletError(`Wallet error: ${msg}`);
+      }
     } finally { setIsConnecting(false); }
   }, []);
 
