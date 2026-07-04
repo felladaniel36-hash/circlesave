@@ -73,6 +73,51 @@ export async function getVaultState(senderAddress: string): Promise<VaultState> 
   };
 }
 
+/**
+ * MULTI-VAULT AGGREGATION — the heart of the cooperative pool.
+ *
+ * Loops through EVERY member address in the circle and reads their individual
+ * vault balance via a read-only contract call. Sums them into one combined
+ * total — the true cooperative savings pool.
+ *
+ * This is how the dashboard reflects EVERYONE's contributions, not just the
+ * connected wallet's.
+ *
+ * @param memberAddresses  Array of Stacks addresses (each member)
+ * @param senderAddress    Any valid address used as the simulated caller
+ * @returns micro-units total across all members
+ */
+export async function getTotalCirclePool(
+  memberAddresses: string[],
+  senderAddress: string,
+): Promise<{ totalMicro: number; perMember: Record<string, number> }> {
+  if (memberAddresses.length === 0) {
+    return { totalMicro: 0, perMember: {} };
+  }
+
+  // Read each member's vault in parallel
+  const results = await Promise.all(
+    memberAddresses.map(async (addr) => {
+      try {
+        const state = await getVaultState(addr);
+        return { addr, balance: state.totalBalance };
+      } catch {
+        // A single member's read failing shouldn't blank the whole pool
+        return { addr, balance: 0 };
+      }
+    }),
+  );
+
+  const perMember: Record<string, number> = {};
+  let totalMicro = 0;
+  for (const r of results) {
+    perMember[r.addr] = r.balance;
+    totalMicro += r.balance;
+  }
+
+  return { totalMicro, perMember };
+}
+
 // ---------------------------------------------------------------------------
 // WRITES — wallet-signed transactions via openContractCall
 // ---------------------------------------------------------------------------

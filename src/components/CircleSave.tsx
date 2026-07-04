@@ -12,7 +12,7 @@
 // The components are dumb/presentational — all state lives here.
 // ===========================================================================
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Header } from "./Header";
 import { ChainStatus } from "./ChainStatus";
 import { CircleOverview } from "./CircleOverview";
@@ -42,10 +42,9 @@ import { loadJSON, saveJSON, tokenToMicro, microToToken, fmtNumber } from "@/lib
 import { UNIT, MICRO } from "@/lib/config";
 
 export function CircleSave() {
-  // --- Wallet + chain ---
+  // --- Wallet ---
   const wallet = useWallet();
   const { address } = wallet;
-  const chain = useChainState(address);
 
   // --- Circle state ---
   const [config, setConfig] = useState<CircleConfig | null>(null);
@@ -54,6 +53,13 @@ export function CircleSave() {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [automation, setAutomation] = useState(false);
   const [ended, setEnded] = useState(false);
+
+  // --- Chain (aggregates pool across ALL members via MULTI-VAULT AGGREGATION) ---
+  const memberAddresses = useMemo(
+    () => members.map((m) => m.address),
+    [members],
+  );
+  const chain = useChainState(address, memberAddresses);
 
   // --- UI state ---
   const [showSetup, setShowSetup] = useState(false);
@@ -279,6 +285,23 @@ export function CircleSave() {
   const isActive = !!config && !ended;
   const poolReady = isActive && config ? chain.poolBalance >= config.targetPool : false;
   const turnMember = members[turnIndex];
+
+  // Reactive target-reached trigger — fires a notification ONCE when the
+  // aggregated pool crosses the target, so the turn-by-turn routing is
+  // surfaced to the user immediately.
+  const targetReachedRef = useRef(false);
+  useEffect(() => {
+    if (poolReady && !targetReachedRef.current && config) {
+      targetReachedRef.current = true;
+      setToast({
+        kind: "ok",
+        msg: `🎯 Target reached! ${config.targetPool} ${UNIT} pooled across all members. ${turnMember?.name} is ready to receive — tap "Dispatch Payout".`,
+      });
+    }
+    if (!poolReady) {
+      targetReachedRef.current = false; // reset so it can fire again next round
+    }
+  }, [poolReady, config, turnMember]);
   const isCreator = !!address && address === config?.creatorAddress;
   const dayCount = config && !ended
     ? Math.max(1, Math.floor((Date.now() - config.createdAt) / 86400000) + 1)
@@ -438,6 +461,7 @@ export function CircleSave() {
                 members={members}
                 currentTurnIndex={turnIndex}
                 isActive={isActive}
+                perMemberBalances={chain.perMember}
                 onInvite={handleInvite}
               />
               <LedgerFeed ledger={ledger} />

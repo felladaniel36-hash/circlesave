@@ -8,6 +8,7 @@ interface MemberGridProps {
   members: CircleMember[];
   currentTurnIndex: number;
   isActive: boolean;
+  perMemberBalances?: Record<string, number>;
   onInvite: (name: string, address: string) => void;
 }
 
@@ -15,6 +16,7 @@ export function MemberGrid({
   members,
   currentTurnIndex,
   isActive,
+  perMemberBalances,
   onInvite,
 }: MemberGridProps) {
   const [inviting, setInviting] = useState(false);
@@ -81,6 +83,11 @@ export function MemberGrid({
                     <p className="font-data-mono text-xs text-on-surface-variant">
                       {shortenAddr(m.address, 7, 4)}
                     </p>
+                    {perMemberBalances && perMemberBalances[m.address] > 0 && (
+                      <p className="font-data-mono text-[10px] text-green-400 mt-0.5">
+                        ◎ {(perMemberBalances[m.address] / 1_000_000).toFixed(2)} USDCx pooled
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

@@ -28,6 +28,11 @@ export function Header({ address, connecting, onConnect, onDisconnect }: HeaderP
               Save Together. Trust the Code.
             </span>
           </div>
+          {/* FlowVault co-brand badge */}
+          <span className="hidden md:flex items-center gap-1 ml-2 px-2 py-0.5 rounded-md bg-surface-container border border-outline-variant text-[9px] font-bold uppercase tracking-wider text-on-surface-variant">
+            <span className="material-symbols-outlined text-[10px] text-primary">lock</span>
+            Backed by FlowVault
+          </span>
         </div>
 
         {/* Wallet */}
