@@ -258,6 +258,23 @@ export function CircleSave() {
     addLedger(`${name} invited to the circle`);
   }, [addLedger]);
 
+  // --- Start a new circle (after ending the previous one) ---
+  const handleNewCircle = useCallback(() => {
+    // Clear the old circle state
+    setConfig(null);
+    setEnded(false);
+    setTurnIndex(0);
+    setAutomation(false);
+    setMembers((prev) => prev.map((m) => ({ ...m, hasReceived: false })));
+    saveJSON(STORAGE.config, null);
+    saveJSON(STORAGE.ended, false);
+    saveJSON(STORAGE.turn, 0);
+    saveJSON(STORAGE.automation, false);
+    addLedger("Started fresh — ready to create a new circle.");
+    // Open the setup modal immediately
+    openModal();
+  }, [addLedger, openModal]);
+
   // --- Derived ---
   const isActive = !!config && !ended;
   const poolReady = isActive && config ? chain.poolBalance >= config.targetPool : false;
@@ -335,11 +352,19 @@ export function CircleSave() {
           </div>
         )}
 
-        {/* Ended banner */}
+        {/* Ended banner — now with a Start New Circle button */}
         {ended && (
-          <div className="mb-6 p-4 rounded-xl bg-zinc-800/50 border border-zinc-700 text-zinc-400 text-sm flex items-center gap-3">
-            <span className="material-symbols-outlined">block</span>
-            <span>This circle has ended. Start a new one to begin saving again.</span>
+          <div className="mb-6 p-6 rounded-xl bg-primary/10 border border-primary/30 text-sm flex items-center gap-4">
+            <span className="material-symbols-outlined text-primary">autorenew</span>
+            <div className="flex-1 text-on-surface">
+              <strong className="text-primary">This circle has ended.</strong> The ledger and members are kept for your records. Start a new circle anytime.
+            </div>
+            <button
+              onClick={handleNewCircle}
+              className="bg-primary-container text-on-primary-container px-6 py-2.5 rounded-lg font-bold hover:scale-95 transition-transform whitespace-nowrap"
+            >
+              Start New Circle
+            </button>
           </div>
         )}
 
