@@ -110,6 +110,17 @@ function blocksToHuman(blocks: number): string {
   return parts.join(" ") || "<1m";
 }
 
+/** Estimate the calendar date when a future block will be reached.
+ *  Needs both the target block and the current block (to compute the offset). */
+function blocksToDate(targetBlock: number, currentBlockNum: number): string {
+  if (!targetBlock || !currentBlockNum) return "—";
+  const offsetBlocks = Math.max(0, targetBlock - currentBlockNum);
+  const offsetMs = offsetBlocks * BLOCK_TIME_MIN * 60000;
+  const targetMs = Date.now() + offsetMs;
+  const d = new Date(targetMs);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -135,8 +146,6 @@ export function FamilyRentVaultLanding() {
 
   // --- Setup form fields ---
   const [setupGoal, setSetupGoal] = useState("1000");
-  const [setupDeadlineMode, setSetupDeadlineMode] = useState<"calendar" | "duration" | "absolute">("calendar");
-  const [setupDeadlineValue, setSetupDeadlineValue] = useState(String(DAY_BLOCKS * 7)); // ~1 week (duration mode)
   const [setupDeadlineDate, setSetupDeadlineDate] = useState(""); // yyyy-mm-dd (calendar end date)
   const [setupStartDate, setSetupStartDate] = useState(""); // yyyy-mm-dd (auto = today when modal opens)
   const [setupLandlord, setSetupLandlord] = useState("");
@@ -149,18 +158,23 @@ export function FamilyRentVaultLanding() {
     return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   }, []);
 
-  // Days between start and end date (human label)
+  // Days between start and end date (human label like "1 month and 2 days")
   const fmtDuration = useCallback((startIso: string, endIso: string) => {
     if (!startIso || !endIso) return "";
     const s = new Date(startIso + "T00:00:00").getTime();
     const e = new Date(endIso + "T23:59:59").getTime();
     if (Number.isNaN(s) || Number.isNaN(e) || e <= s) return "";
     const days = Math.round((e - s) / (24 * 3600 * 1000));
-    if (days < 1) return "<1 day";
-    if (days === 1) return "1 day";
-    if (days < 30) return `${days} days`;
-    const months = Math.round(days / 30);
-    return months === 1 ? "1 month" : `${months} months`;
+
+    const months = Math.floor(days / 30);
+    const remDays = days % 30;
+
+    const monthLabel = (m: number) => (m === 1 ? "1 month" : `${m} months`);
+    const dayLabel = (d: number) => (d === 1 ? "1 day" : `${d} days`);
+
+    if (months === 0) return dayLabel(days);
+    if (remDays === 0) return monthLabel(months);
+    return `${monthLabel(months)} and ${dayLabel(remDays)}`;
   }, []);
 
   // Open the modal — auto-set the start date to today
@@ -308,46 +322,27 @@ export function FamilyRentVaultLanding() {
     try {
       goalMicro = tokenToMicro(setupGoal);
     } catch {
-      return setSetupError("Enter a valid rent goal in USDCx (e.g. 1000).");
+      return setSetupError("Enter a valid goal amount in USDCx (e.g. 1000).");
     }
-    if (goalMicro <= 0n) return setSetupError("Goal must be greater than zero.");
+    if (goalMicro <= 0n) return setSetupError("Goal amount must be greater than zero.");
 
     // Validate landlord
     const landlord = setupLandlord.trim();
-    if (!landlord) return setSetupError("Enter the landlord's Stacks address.");
+    if (!landlord) return setSetupError("Enter the recipient's wallet address.");
     if (!/^(ST|SP|SM|SN)[0-9A-Z]{30,}/i.test(landlord))
-      return setSetupError("Landlord address looks invalid (should start with ST/SP/SM/SN).");
+      return setSetupError("Wallet address looks invalid (should start with ST/SP/SM/SN).");
 
-    // Resolve deadline block
-    let deadlineBlock: number;
-    if (setupDeadlineMode === "calendar") {
-      if (!setupDeadlineDate) return setSetupError("Pick a calendar date for the deadline.");
-      // Convert the selected date to a block height:
-      // targetTime (end of selected day) → minutes from now → blocks → + currentBlock
-      const targetMs = new Date(setupDeadlineDate + "T23:59:59").getTime();
-      const nowMs = Date.now();
-      if (Number.isNaN(targetMs)) return setSetupError("Invalid date selected.");
-      if (targetMs <= nowMs) return setSetupError("Pick a future date.");
-      if (currentBlock <= 0)
-        return setSetupError("Connect your wallet first so we can read the current block height.");
-      const diffMin = Math.max(1, Math.round((targetMs - nowMs) / 60000));
-      deadlineBlock = currentBlock + Math.max(1, Math.round(diffMin / BLOCK_TIME_MIN));
-    } else {
-      const n = Number(setupDeadlineValue);
-      if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0)
-        return setSetupError("Enter a positive whole number of blocks.");
-
-      if (setupDeadlineMode === "duration") {
-        if (currentBlock <= 0)
-          return setSetupError("Connect your wallet first so we can read the current block height.");
-        deadlineBlock = currentBlock + n;
-      } else {
-        // absolute
-        deadlineBlock = n;
-        if (currentBlock > 0 && deadlineBlock <= currentBlock)
-          return setSetupError("Absolute deadline must be a future block.");
-      }
-    }
+    // Resolve deadline block — convert the selected end date to a block height
+    // (the block math stays here in the background; the user never sees it)
+    if (!setupDeadlineDate) return setSetupError("Pick an end date for your savings period.");
+    const targetMs = new Date(setupDeadlineDate + "T23:59:59").getTime();
+    const nowMs = Date.now();
+    if (Number.isNaN(targetMs)) return setSetupError("Invalid date selected.");
+    if (targetMs <= nowMs) return setSetupError("Pick a future end date.");
+    if (currentBlock <= 0)
+      return setSetupError("Connect your wallet first so we can set the lock.");
+    const diffMin = Math.max(1, Math.round((targetMs - nowMs) / 60000));
+    const deadlineBlock = currentBlock + Math.max(1, Math.round(diffMin / BLOCK_TIME_MIN));
 
     const cfg: VaultConfig = {
       goal: Number(goalMicro) / MICRO,
@@ -362,8 +357,8 @@ export function FamilyRentVaultLanding() {
       /* ignore */
     }
     setShowVaultSetup(false);
-    setStatus({ kind: "ok", msg: `Vault created — goal ${cfg.goal} USDCx, unlocks at block #${deadlineBlock.toLocaleString()}.` });
-  }, [setupGoal, setupLandlord, setupDeadlineMode, setupDeadlineValue, setupDeadlineDate, currentBlock]);
+    setStatus({ kind: "ok", msg: `Vault created! Goal: ${cfg.goal} USDCx · saves until ${fmtDate(setupDeadlineDate)}.` });
+  }, [setupGoal, setupLandlord, setupDeadlineDate, currentBlock, fmtDate]);
 
   // =========================================================================
   // (2) DEPOSIT — openContractCall: set-routing-rules (lock) → deposit
@@ -373,7 +368,7 @@ export function FamilyRentVaultLanding() {
     setWalletError("");
     if (!walletAddress) return setWalletError("Connect your wallet first.");
     const cfg = configRef.current;
-    if (!cfg) return setStatus({ kind: "err", msg: "Create your vault first (Launch Your Vault)." });
+    if (!cfg) return setStatus({ kind: "err", msg: "Create your vault first (Start Saving)." });
 
     let micro: bigint;
     try {
@@ -525,19 +520,8 @@ export function FamilyRentVaultLanding() {
   const settlementReady = deadlineBlock > 0 && currentBlock > 0 && currentBlock >= deadlineBlock;
   const blocksRemaining = deadlineBlock > 0 && currentBlock > 0 ? Math.max(0, deadlineBlock - currentBlock) : 0;
 
-  // Resolved absolute block shown in the setup modal (for duration/calendar modes)
-  let resolvedAbsolute = 0;
-  if (setupDeadlineMode === "calendar") {
-    if (setupDeadlineDate && currentBlock > 0) {
-      const targetMs = new Date(setupDeadlineDate + "T23:59:59").getTime();
-      const diffMin = Math.max(1, Math.round((targetMs - Date.now()) / 60000));
-      resolvedAbsolute = currentBlock + Math.max(1, Math.round(diffMin / BLOCK_TIME_MIN));
-    }
-  } else if (setupDeadlineMode === "duration") {
-    resolvedAbsolute = currentBlock > 0 ? currentBlock + (Number(setupDeadlineValue) || 0) : 0;
-  } else {
-    resolvedAbsolute = Number(setupDeadlineValue) || 0;
-  }
+  // Human-friendly duration between the setup start/end dates (e.g. "1 month and 2 days")
+  const setupDurationLabel = fmtDuration(setupStartDate, setupDeadlineDate);
 
   // -------------------------------------------------------------------------
   return (
@@ -589,14 +573,14 @@ export function FamilyRentVaultLanding() {
               Programmable <span className="text-primary">Collective Savings</span>
             </h1>
             <p className="font-body-base text-on-surface-variant max-w-xl mx-auto mb-10">
-              Pool USDCx securely with family members to meet fixed milestones—programmatically locked and automatically routed straight to your landlord.
+              Save together as a family toward a shared goal. Your contributions are locked safely and sent automatically to your recipient on the date you choose.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <button
                 onClick={openVaultSetup}
                 className="bg-primary-container text-on-primary-container px-8 py-3 rounded-xl font-bold neon-glow-orange hover:bg-secondary transition-colors"
               >
-                {vaultConfig ? "Edit Vault Settings" : "Launch Your Vault"}
+                {vaultConfig ? "Edit Vault" : "Start Saving"}
               </button>
               <button className="border border-zinc-700 text-white px-8 py-3 rounded-xl font-medium hover:bg-zinc-900 transition-colors">
                 View Audit
@@ -628,7 +612,7 @@ export function FamilyRentVaultLanding() {
           <div className="mb-6 p-6 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 font-body-sm flex items-center gap-4">
             <span className="material-symbols-outlined">info</span>
             <div className="flex-1">
-              <strong>No vault configured yet.</strong> Click <em>Launch Your Vault</em> to set your rent goal, deadline block, and landlord address.
+              <strong>No savings vault yet.</strong> Click <em>Start Saving</em> to set your goal amount, deadline, and recipient.
             </div>
             <button onClick={openVaultSetup} className="bg-amber-500/20 border border-amber-500/40 px-4 py-2 rounded-lg font-bold hover:bg-amber-500/30 transition-colors whitespace-nowrap">
               Set Up
@@ -644,13 +628,13 @@ export function FamilyRentVaultLanding() {
             <div className="glass-panel p-stack-lg rounded-xl">
               <div className="flex items-center justify-between mb-8">
                 <div>
-                  <h3 className="font-headline-md text-headline-md text-white mb-1">Rent Completion</h3>
-                  <p className="font-body-sm text-on-surface-variant">Block-synced treasury status</p>
+                  <h3 className="font-headline-md text-headline-md text-white mb-1">Savings Progress</h3>
+                  <p className="font-body-sm text-on-surface-variant">Track your family's goal</p>
                 </div>
                 <div className="bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-amber-500 text-sm">{settlementReady ? "lock_open" : "lock"}</span>
                   <span className="font-label-caps text-label-caps text-amber-500">
-                    {vaultConfig ? (settlementReady ? "Settlement Open" : "Status: Time-Locked") : "No Vault"}
+                    {vaultConfig ? (settlementReady ? "Ready to Withdraw" : "Locked") : "No Vault"}
                   </span>
                 </div>
               </div>
@@ -670,25 +654,26 @@ export function FamilyRentVaultLanding() {
 
               <div className="grid grid-cols-2 gap-4 mt-8 pt-8 border-t border-outline-variant">
                 <div>
-                  <p className="font-label-caps text-on-surface-variant mb-1">Current Block</p>
-                  <p className="font-data-mono text-primary">{currentBlock > 0 ? `#${currentBlock.toLocaleString()}` : "—"}</p>
+                  <p className="font-label-caps text-on-surface-variant mb-1">Status</p>
+                  <p className="font-data-mono text-primary">
+                    {!vaultConfig ? "—" : settlementReady ? "Unlocked" : blocksRemaining > 0 ? `~${blocksToHuman(blocksRemaining)} left` : "—"}
+                  </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-label-caps text-on-surface-variant mb-1">Target Unlock</p>
-                  <p className="font-data-mono text-on-surface">{deadlineBlock > 0 ? `#${deadlineBlock.toLocaleString()}` : "—"}</p>
-                  {blocksRemaining > 0 && (
-                    <p className="font-label-caps text-[10px] text-on-surface-variant mt-1">~{blocksToHuman(blocksRemaining)} left</p>
-                  )}
+                  <p className="font-label-caps text-on-surface-variant mb-1">Unlocks On</p>
+                  <p className="font-data-mono text-on-surface">
+                    {deadlineBlock > 0 ? blocksToDate(deadlineBlock, currentBlock) : "—"}
+                  </p>
                 </div>
               </div>
             </div>
 
             {/* Financial Action */}
             <div className="glass-panel p-stack-lg rounded-xl">
-              <h3 className="font-headline-md text-headline-md text-white mb-6">Financial Action</h3>
+              <h3 className="font-headline-md text-headline-md text-white mb-6">Add Money</h3>
               <div className="space-y-6">
                 <div>
-                  <label className="font-label-caps text-on-surface-variant mb-2 block">Amount to Contribute (USDCx)</label>
+                  <label className="font-label-caps text-on-surface-variant mb-2 block">Amount (USDCx)</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -706,7 +691,7 @@ export function FamilyRentVaultLanding() {
                   className="w-full bg-primary-container text-on-primary-container font-bold py-4 rounded-xl hover:scale-[0.98] transition-transform flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="material-symbols-outlined">bolt</span>
-                  {busy ? "Awaiting wallet…" : "Contribute to Rent"}
+                  {busy ? "Awaiting wallet…" : "Contribute"}
                 </button>
               </div>
             </div>
@@ -714,16 +699,16 @@ export function FamilyRentVaultLanding() {
             {/* Settlement Zone */}
             <div className="glass-panel p-stack-lg rounded-xl border border-dashed border-zinc-800">
               <div className="flex flex-col items-center text-center">
-                <h3 className="font-headline-md text-headline-md text-white mb-2">Settlement Zone</h3>
+                <h3 className="font-headline-md text-headline-md text-white mb-2">Withdraw & Send</h3>
                 <p className="font-body-sm text-on-surface-variant mb-4 max-w-sm">
-                  Unlocks automatically when Target Block Height is reached, then routes to the landlord via FlowVault Split.
+                  When the deadline is reached, withdraw your savings and send them to the recipient automatically.
                 </p>
                 {/* Landlord (reflects config, read-only) */}
                 <div className="w-full mb-6">
-                  <label className="font-label-caps text-on-surface-variant mb-2 block text-left">Landlord Wallet Address</label>
+                  <label className="font-label-caps text-on-surface-variant mb-2 block text-left">Recipient Wallet Address</label>
                   <div className="w-full bg-[#09090b] border border-zinc-800 text-white p-3 rounded-lg font-data-mono text-sm flex items-center justify-between">
                     <span className={vaultConfig?.landlord ? "" : "text-zinc-600"}>
-                      {vaultConfig?.landlord || "Not set — configure in Launch Your Vault"}
+                      {vaultConfig?.landlord || "Not set — tap Start Saving to configure"}
                     </span>
                     <button onClick={openVaultSetup} className="font-label-caps text-primary hover:underline">
                       Edit
@@ -736,11 +721,11 @@ export function FamilyRentVaultLanding() {
                   className={`w-full font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all ${settlementReady && vaultConfig ? "bg-primary-container text-on-primary-container hover:scale-[0.98] cursor-pointer" : "bg-zinc-800/50 text-zinc-500 cursor-not-allowed opacity-50"}`}
                 >
                   <span className="material-symbols-outlined">{settlementReady ? "lock_open" : "lock"}</span>
-                  {busy ? "Awaiting wallet…" : "Settle Rent & Route Funds"}
+                  {busy ? "Awaiting wallet…" : "Withdraw & Send to Recipient"}
                 </button>
                 {!settlementReady && vaultConfig && currentBlock > 0 && (
                   <p className="font-body-sm text-on-surface-variant mt-3">
-                    Locked until block #{deadlineBlock.toLocaleString()} ({blocksToHuman(blocksRemaining)} left, current #{currentBlock.toLocaleString()}).
+                    Unlocks in ~{blocksToHuman(blocksRemaining)} ({blocksToDate(deadlineBlock, currentBlock)}).
                   </p>
                 )}
               </div>
@@ -824,7 +809,7 @@ export function FamilyRentVaultLanding() {
           >
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-headline-md text-headline-md text-white">
-                {vaultConfig ? "Edit Vault Settings" : "Launch Your Vault"}
+                {vaultConfig ? "Edit Vault" : "Start Saving"}
               </h3>
               <button onClick={() => setShowVaultSetup(false)} className="text-zinc-400 hover:text-white">
                 <span className="material-symbols-outlined">close</span>
@@ -834,7 +819,7 @@ export function FamilyRentVaultLanding() {
             <div className="space-y-6">
               {/* Goal */}
               <div>
-                <label className="font-label-caps text-on-surface-variant mb-2 block">Rent Goal (USDCx)</label>
+                <label className="font-label-caps text-on-surface-variant mb-2 block">Goal Amount (USDCx)</label>
                 <input
                   type="number"
                   value={setupGoal}
@@ -847,146 +832,56 @@ export function FamilyRentVaultLanding() {
                 </p>
               </div>
 
-              {/* Deadline */}
+              {/* Savings Period — Start + End Date */}
               <div>
-                <label className="font-label-caps text-on-surface-variant mb-2 block">Deadline (Unlock Date)</label>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setSetupDeadlineMode("calendar")}
-                    className={`p-3 rounded-lg border font-label-caps transition-colors ${setupDeadlineMode === "calendar" ? "bg-primary-container text-on-primary-container border-primary-container" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
-                  >
-                    Calendar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSetupDeadlineMode("duration")}
-                    className={`p-3 rounded-lg border font-label-caps transition-colors ${setupDeadlineMode === "duration" ? "bg-primary-container text-on-primary-container border-primary-container" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
-                  >
-                    Duration
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSetupDeadlineMode("absolute")}
-                    className={`p-3 rounded-lg border font-label-caps transition-colors ${setupDeadlineMode === "absolute" ? "bg-primary-container text-on-primary-container border-primary-container" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
-                  >
-                    Block #
-                  </button>
+                <label className="font-label-caps text-on-surface-variant mb-2 block">Savings Period</label>
+
+                {/* Start Date — auto-set to today, read-only */}
+                <div className="mb-3">
+                  <label className="font-label-caps text-on-surface-variant mb-2 block text-[10px]">
+                    Start Date <span className="opacity-60 normal-case">(today)</span>
+                  </label>
+                  <div className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg font-data-mono flex items-center gap-3 opacity-90">
+                    <span className="material-symbols-outlined text-primary text-base">event</span>
+                    <span>{fmtDate(setupStartDate)}</span>
+                  </div>
                 </div>
 
-                {/* Calendar mode — Start Date (auto) + End Date (picker) */}
-                {setupDeadlineMode === "calendar" && (
-                  <div className="mb-3 space-y-4">
-                    {/* Start Date — auto-set to today, read-only */}
-                    <div>
-                      <label className="font-label-caps text-on-surface-variant mb-2 block">
-                        <span className="material-symbols-outlined text-sm align-middle">play_circle</span>{" "}
-                        Start Date <span className="opacity-60 normal-case">(today, auto-set)</span>
-                      </label>
-                      <div className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg font-data-mono flex items-center gap-3 opacity-90">
-                        <span className="material-symbols-outlined text-primary text-base">event</span>
-                        <span>{fmtDate(setupStartDate)}</span>
-                      </div>
-                    </div>
+                {/* End Date — the calendar picker */}
+                <div className="mb-3">
+                  <label className="font-label-caps text-on-surface-variant mb-2 block text-[10px]">
+                    End Date <span className="opacity-60 normal-case">(pick your deadline)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={setupDeadlineDate}
+                    min={setupStartDate || new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setSetupDeadlineDate(e.target.value)}
+                    className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono"
+                  />
+                </div>
 
-                    {/* End Date — the calendar picker */}
+                {/* Friendly duration summary */}
+                {setupDurationLabel ? (
+                  <div className="rounded-lg bg-primary/10 border border-primary/30 p-4 flex items-center gap-3">
+                    <span className="material-symbols-outlined text-primary">schedule</span>
                     <div>
-                      <label className="font-label-caps text-on-surface-variant mb-2 block">
-                        <span className="material-symbols-outlined text-sm align-middle">flag</span>{" "}
-                        End Date <span className="opacity-60 normal-case">(select deadline)</span>
-                      </label>
-                      <input
-                        type="date"
-                        value={setupDeadlineDate}
-                        min={setupStartDate || new Date().toISOString().slice(0, 10)}
-                        onChange={(e) => setSetupDeadlineDate(e.target.value)}
-                        className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono"
-                      />
+                      <p className="font-label-caps text-primary">Your savings duration</p>
+                      <p className="font-body-base text-white font-bold">{setupDurationLabel}</p>
                     </div>
-
-                    {/* Auto-calculated block height */}
-                    {resolvedAbsolute > 0 ? (
-                      <div className="rounded-lg bg-primary/10 border border-primary/30 p-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="material-symbols-outlined text-primary text-sm">link</span>
-                          <span className="font-label-caps text-primary">Resolved Block Height (auto)</span>
-                        </div>
-                        <p className="font-data-mono text-primary text-lg">
-                          #{resolvedAbsolute.toLocaleString()}
-                        </p>
-                        <p className="font-label-caps text-[10px] text-on-surface-variant mt-1">
-                          {fmtDuration(setupStartDate, setupDeadlineDate)
-                            ? `${fmtDuration(setupStartDate, setupDeadlineDate)} · `
-                            : ""}
-                          ~{DAY_BLOCKS} blocks ≈ 1 day
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg bg-zinc-800/40 border border-zinc-800 p-4">
-                        <p className="font-label-caps text-[10px] text-on-surface-variant">
-                          {currentBlock <= 0
-                            ? "Connect your wallet to auto-calculate the block height from these dates."
-                            : "Select an end date to auto-calculate the block height."}
-                        </p>
-                      </div>
-                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-zinc-800/40 border border-zinc-800 p-4">
+                    <p className="font-label-caps text-[10px] text-on-surface-variant">
+                      Pick an end date above to see your savings duration.
+                    </p>
                   </div>
                 )}
-
-                {/* Duration mode — number input + presets */}
-                {setupDeadlineMode === "duration" && (
-                  <>
-                    <input
-                      type="number"
-                      value={setupDeadlineValue}
-                      onChange={(e) => setSetupDeadlineValue(e.target.value)}
-                      placeholder={String(DAY_BLOCKS)}
-                      className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono mb-3"
-                    />
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {[
-                        ["1 hour", 6],
-                        ["1 day", DAY_BLOCKS],
-                        ["1 week", DAY_BLOCKS * 7],
-                        ["1 month", DAY_BLOCKS * 30],
-                      ].map(([label, val]) => (
-                        <button
-                          key={String(val)}
-                          type="button"
-                          onClick={() => setSetupDeadlineValue(String(val))}
-                          className={`px-3 py-1.5 rounded-lg border font-label-caps text-xs transition-colors ${setupDeadlineValue === String(val) ? "bg-primary/20 border-primary text-primary" : "border-zinc-800 text-on-surface-variant hover:border-zinc-700"}`}
-                        >
-                          {label} <span className="opacity-60">· {val}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {/* Absolute mode — raw block number */}
-                {setupDeadlineMode === "absolute" && (
-                  <input
-                    type="number"
-                    value={setupDeadlineValue}
-                    onChange={(e) => setSetupDeadlineValue(e.target.value)}
-                    placeholder="8820000"
-                    className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono mb-3"
-                  />
-                )}
-
-                <p className="font-label-caps text-[10px] text-on-surface-variant">
-                  {setupDeadlineMode === "calendar"
-                    ? "Funds lock from the start date until the end date — block height is auto-calculated above."
-                    : setupDeadlineMode === "duration"
-                      ? `Adds blocks to the current chain height. Resolves to #${resolvedAbsolute > 0 ? resolvedAbsolute.toLocaleString() : "…"}${currentBlock > 0 ? ` (current: #${currentBlock.toLocaleString()}).` : ""}`
-                      : "Enter a specific future Stacks block height."}
-                  {" "}~{DAY_BLOCKS} blocks ≈ 1 day.
-                </p>
               </div>
 
               {/* Landlord */}
               <div>
-                <label className="font-label-caps text-on-surface-variant mb-2 block">Landlord Wallet Address</label>
+                <label className="font-label-caps text-on-surface-variant mb-2 block">Recipient Wallet Address</label>
                 <input
                   value={setupLandlord}
                   onChange={(e) => setSetupLandlord(e.target.value)}
@@ -994,7 +889,7 @@ export function FamilyRentVaultLanding() {
                   className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all font-data-mono text-sm"
                 />
                 <p className="font-label-caps text-[10px] text-on-surface-variant mt-2">
-                  Where the rent gets routed after the deadline (FlowVault Split).
+                  Where the savings get sent once the deadline is reached.
                 </p>
               </div>
 
@@ -1006,10 +901,10 @@ export function FamilyRentVaultLanding() {
 
               <button
                 onClick={createVault}
-                disabled={currentBlock <= 0 && setupDeadlineMode !== "absolute"}
+                disabled={currentBlock <= 0}
                 className="w-full bg-primary-container text-on-primary-container font-bold py-4 rounded-xl hover:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {currentBlock <= 0 && setupDeadlineMode !== "absolute" ? "Connect wallet to read block height" : (vaultConfig ? "Update Vault" : "Create Vault")}
+                {currentBlock <= 0 ? "Connect wallet to continue" : (vaultConfig ? "Update Vault" : "Create Vault")}
               </button>
             </div>
           </div>
