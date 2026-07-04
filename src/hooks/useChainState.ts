@@ -1,14 +1,16 @@
 "use client";
 
 // ===========================================================================
-// useChainState — live polling of blockchain state
+// useChainState — live polling of blockchain state (flicker-free + stable)
 // ===========================================================================
-// This hook is what makes the frontend "communicate" with the backend.
-// It polls the current block height + vault state every 15s and exposes
-// them as reactive state. The UI updates automatically as the chain moves.
+// Polls the current block height + vault state every 20s.
+//  • Background polls update data SILENTLY (no loading flash) so the UI
+//    doesn't flicker. Only the very first fetch shows a loading state.
+//  • Returns a STABLE object (memoized) so consumers don't re-render every
+//    poll cycle unless the data actually changed.
 // ===========================================================================
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getCurrentBlock, getVaultState } from "@/lib/flowvault";
 import { microToToken } from "@/lib/format";
 
@@ -16,56 +18,78 @@ export interface ChainData {
   currentBlock: number;
   poolBalance: number; // token-scale
   unlockedMicro: number;
-  loading: boolean;
+  loading: boolean; // true ONLY during the initial fetch
   lastSync: number | null;
   error: string | null;
+  refresh: () => Promise<void>;
 }
 
-const IDLE: ChainData = {
-  currentBlock: 0,
-  poolBalance: 0,
-  unlockedMicro: 0,
-  loading: false,
-  lastSync: null,
-  error: null,
-};
+export function useChainState(walletAddress: string | null): ChainData {
+  const [currentBlock, setCurrentBlock] = useState(0);
+  const [poolBalance, setPoolBalance] = useState(0);
+  const [unlockedMicro, setUnlockedMicro] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [lastSync, setLastSync] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-export function useChainState(walletAddress: string | null) {
-  const [data, setData] = useState<ChainData>(IDLE);
+  const didInit = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(
+    async (silent: boolean) => {
+      if (!walletAddress) return;
+      if (!silent) setLoading(true);
+      try {
+        const block = await getCurrentBlock(walletAddress);
+        const state = await getVaultState(walletAddress);
+        setCurrentBlock(block);
+        setPoolBalance(microToToken(state.totalBalance));
+        setUnlockedMicro(state.unlockedBalance);
+        setLastSync(Date.now());
+        setError(null);
+      } catch (e) {
+        // On silent (background) polls, keep last good data — don't blank the UI
+        if (!silent || currentBlock === 0) {
+          setError(e instanceof Error ? e.message : "Chain read failed");
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [walletAddress, currentBlock],
+  );
+
+  // Exposed refresh — always silent (no loading flash) for manual re-fetches
+  const refreshExposed = useCallback(() => refresh(true), [refresh]);
+
+  // Initial fetch on connect + poll every 20s (silent)
+  useEffect(() => {
     if (!walletAddress) {
-      setData(IDLE);
+      didInit.current = false;
+      setCurrentBlock(0);
+      setPoolBalance(0);
+      setUnlockedMicro(0);
+      setLoading(false);
+      setLastSync(null);
+      setError(null);
       return;
     }
-    setData((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const block = await getCurrentBlock(walletAddress);
-      const state = await getVaultState(walletAddress);
-      setData({
-        currentBlock: block,
-        poolBalance: microToToken(state.totalBalance),
-        unlockedMicro: state.unlockedBalance,
-        loading: false,
-        lastSync: Date.now(),
-        error: null,
-      });
-    } catch (e) {
-      setData((prev) => ({
-        ...prev,
-        loading: false,
-        error: e instanceof Error ? e.message : "Chain read failed",
-      }));
-    }
-  }, [walletAddress]);
-
-  // Fetch on connect + poll every 15s
-  useEffect(() => {
-    if (!walletAddress) return;
-    void refresh();
-    const id = window.setInterval(() => void refresh(), 15000);
+    void refresh(false);
+    didInit.current = true;
+    const id = window.setInterval(() => void refresh(true), 20000);
     return () => window.clearInterval(id);
   }, [walletAddress, refresh]);
 
-  return { ...data, refresh };
+  // Stable return — only changes when a primitive actually changes
+  return useMemo(
+    () => ({
+      currentBlock,
+      poolBalance,
+      unlockedMicro,
+      loading,
+      lastSync,
+      error,
+      refresh: refreshExposed,
+    }),
+    [currentBlock, poolBalance, unlockedMicro, loading, lastSync, error, refreshExposed],
+  );
 }
