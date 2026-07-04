@@ -6,19 +6,6 @@ import { DECIMALS, MICRO, EXPLORER, NETWORK, BLOCK_TIME_MIN } from "./config";
 
 // --- Amount conversion ---
 
-export function tokenToMicro(amountStr: string): bigint {
-  const trimmed = (amountStr || "").trim();
-  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
-    throw new Error("Enter a valid amount (e.g. 10 or 1.5).");
-  }
-  const [whole, frac = ""] = trimmed.split(".");
-  if (frac.length > DECIMALS) {
-    throw new Error(`Maximum ${DECIMALS} decimal places.`);
-  }
-  const padded = frac.padEnd(DECIMALS, "0");
-  return BigInt(whole) * BigInt(MICRO) + BigInt(padded || "0");
-}
-
 export function microToToken(micro: number): number {
   return micro / MICRO;
 }
