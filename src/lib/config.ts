@@ -111,6 +111,7 @@ export const STORAGE = {
   turn: "cs.turn.v3",
   ended: "cs.ended.v3",
   automation: "cs.automation.v3",
+  pool: "cs.pool.v3", // total contributed toward current round
 } as const;
 
 // ---------------------------------------------------------------------------

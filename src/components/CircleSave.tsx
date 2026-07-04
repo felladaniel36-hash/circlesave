@@ -1,15 +1,16 @@
 "use client";
 
 // ===========================================================================
-// CircleSave — Main Orchestrator
+// CircleSave — Main Orchestrator (split-only model)
 // ===========================================================================
-// This component wires together:
-//   • useWallet     → connect/disconnect (frontend ↔ wallet extension)
-//   • useChainState → live block + vault reads (frontend ↔ blockchain)
-//   • lib/flowvault → all contract writes (frontend → smart contract)
-//   • Circle state  → members, turns, ledger (localStorage persistence)
+// MODEL: Deposits route to the turn member at deposit time via FlowVault's
+// split primitive. The progress ring tracks total contributed toward the
+// current round's target. When the target is reached, the turn advances and
+// the ring resets — ready to fill again for the next member.
 //
-// The components are dumb/presentational — all state lives here.
+// Why no lock? FlowVault's contract requires lockAmount + splitAmount ≤
+// depositAmount. Setting both equal demands 2× the deposit. Split-only
+// (lockAmount=0) routes the full deposit to the recipient instantly.
 // ===========================================================================
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -33,10 +34,7 @@ import {
 } from "@/lib/config";
 import {
   authorizeCircleAutomation,
-  dispatchPayout,
   deposit,
-  withdraw,
-  computeLockBlock,
 } from "@/lib/flowvault";
 import { loadJSON, saveJSON, microToToken, fmtNumber } from "@/lib/format";
 import { UNIT, MICRO } from "@/lib/config";
@@ -53,8 +51,9 @@ export function CircleSave() {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [automation, setAutomation] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [poolCollected, setPoolCollected] = useState(0); // total contributed this round
 
-  // --- Chain (aggregates pool across ALL members) ---
+  // --- Chain (block height for ChainStatus display) ---
   const memberAddresses = useMemo(() => members.map((m) => m.address), [members]);
   const chain = useChainState(address, memberAddresses);
 
@@ -64,23 +63,17 @@ export function CircleSave() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastType | null>(null);
 
-  // --- Refs to hold latest values for use in stable callbacks ---
-  // This breaks the rebuild chain: callbacks read from refs instead of
-  // depending on `chain`, so they never rebuild on every 20s poll.
-  const chainRef = useRef(chain);
-  useEffect(() => { chainRef.current = chain; }, [chain]);
-
+  // --- Refs for stable callbacks ---
   const configRef = useRef(config);
   useEffect(() => { configRef.current = config; }, [config]);
-
   const membersRef = useRef(members);
   useEffect(() => { membersRef.current = members; }, [members]);
-
   const turnIndexRef = useRef(turnIndex);
   useEffect(() => { turnIndexRef.current = turnIndex; }, [turnIndex]);
-
   const addressRef = useRef(address);
   useEffect(() => { addressRef.current = address; }, [address]);
+  const poolRef = useRef(poolCollected);
+  useEffect(() => { poolRef.current = poolCollected; }, [poolCollected]);
 
   // --- Restore from localStorage on mount ---
   useEffect(() => {
@@ -90,16 +83,17 @@ export function CircleSave() {
     if (l.length) setLedger(l);
     const cfg = loadJSON<CircleConfig | null>(STORAGE.config, null);
     if (cfg) setConfig(cfg);
-    const t = loadJSON<number>(STORAGE.turn, 0);
-    setTurnIndex(t);
+    setTurnIndex(loadJSON<number>(STORAGE.turn, 0));
     setEnded(loadJSON<boolean>(STORAGE.ended, false));
     setAutomation(loadJSON<boolean>(STORAGE.automation, false));
+    setPoolCollected(loadJSON<number>(STORAGE.pool, 0));
   }, []);
 
   // --- Persist ---
   useEffect(() => { saveJSON(STORAGE.members, members); }, [members]);
   useEffect(() => { saveJSON(STORAGE.ledger, ledger); }, [ledger]);
   useEffect(() => { saveJSON(STORAGE.turn, turnIndex); }, [turnIndex]);
+  useEffect(() => { saveJSON(STORAGE.pool, poolCollected); }, [poolCollected]);
 
   // --- Helpers ---
   const addLedger = useCallback((action: string, txid?: string) => {
@@ -118,12 +112,46 @@ export function CircleSave() {
     setShowSetup(true);
   }, []);
 
-  // --- Create circle (stable — reads chain block from ref) ---
+  // --- Advance turn + reset pool (the "dispatch" — no on-chain tx needed) ---
+  const advanceTurn = useCallback(() => {
+    const curMembers = membersRef.current;
+    const curTurn = turnIndexRef.current;
+    const turn = curMembers[curTurn];
+    const cfg = configRef.current;
+    if (!turn || !cfg) return;
+
+    // Mark current member as received
+    setMembers((prev) => prev.map((m, i) => (i === curTurn ? { ...m, hasReceived: true } : m)));
+    // Advance turn
+    const next = (curTurn + 1) % Math.max(1, curMembers.length);
+    setTurnIndex(next);
+    // Reset pool counter for the next round
+    setPoolCollected(0);
+    saveJSON(STORAGE.pool, 0);
+    // Reset automation (new recipient needs re-authorization)
+    setAutomation(false);
+    saveJSON(STORAGE.automation, false);
+    // Check full cycle
+    const allReceived = curMembers.every((m, i) => i === curTurn || m.hasReceived);
+    if (allReceived) {
+      setMembers((prev) => prev.map((m) => ({ ...m, hasReceived: false })));
+      addLedger(`🎉 Full cycle complete! ${curMembers.length} members paid. Starting a new round.`);
+    }
+    addLedger(`✓ ${turn.name} received ${fmtNumber(cfg.targetPool)} ${UNIT}. Turn → ${curMembers[next]?.name}.`);
+    setToast({
+      kind: "ok",
+      msg: `✓ ${turn.name} received the payout! Pool reset — next up: ${curMembers[next]?.name}.`,
+    });
+  }, [addLedger]);
+
+  const advanceRef = useRef(advanceTurn);
+  useEffect(() => { advanceRef.current = advanceTurn; }, [advanceTurn]);
+
+  // --- Create circle ---
   const handleCreate = useCallback(
     (name: string, target: number, contribution: number, autoDispatch: boolean) => {
       const addr = addressRef.current;
-      const block = chainRef.current.currentBlock;
-      if (!addr || block <= 0) {
+      if (!addr || chain.currentBlock <= 0) {
         setToast({ kind: "err", msg: "Connect your wallet first." });
         return;
       }
@@ -131,7 +159,7 @@ export function CircleSave() {
         name,
         targetPool: target,
         contributionAmount: contribution,
-        lockBlock: computeLockBlock(block),
+        lockBlock: 0, // no lock in split-only model
         createdAt: Date.now(),
         creatorAddress: addr,
         autoDispatch,
@@ -139,18 +167,20 @@ export function CircleSave() {
       setConfig(cfg);
       setEnded(false);
       setTurnIndex(0);
+      setPoolCollected(0);
       setMembers((prev) => prev.map((m) => ({ ...m, hasReceived: false })));
       saveJSON(STORAGE.config, cfg);
       saveJSON(STORAGE.ended, false);
       saveJSON(STORAGE.turn, 0);
+      saveJSON(STORAGE.pool, 0);
       addLedger(`Circle "${name}" created — target ${target} ${UNIT}, ${membersRef.current.length} members${autoDispatch ? ", auto-payout ON" : ""}`);
       closeModal();
       setToast({ kind: "ok", msg: `Circle live! Target: ${target} ${UNIT}.${autoDispatch ? " Auto-payout enabled." : ""} Day 1 begins now.` });
     },
-    [addLedger, closeModal],
+    [chain.currentBlock, addLedger, closeModal],
   );
 
-  // --- Deposit (stable — reads from refs) ---
+  // --- Deposit (increments pool counter on success) ---
   const handleDeposit = useCallback(
     (amountMicro: bigint) => {
       setToast(null);
@@ -162,10 +192,11 @@ export function CircleSave() {
       setToast({ kind: "info", msg: "Approve the deposit in your wallet…" });
       deposit(amountMicro, (txId) => {
         const amt = microToToken(Number(amountMicro));
-        addLedger(`Deposited ${fmtNumber(amt)} ${UNIT} to circle pool`, txId);
-        setToast({ kind: "ok", msg: `Deposited ${fmtNumber(amt)} ${UNIT}.`, txid: txId });
+        // Increment the pool counter — this is what fills the ring
+        setPoolCollected((prev) => prev + amt);
+        addLedger(`Deposited ${fmtNumber(amt)} ${UNIT} → routed to ${membersRef.current[turnIndexRef.current]?.name}`, txId);
+        setToast({ kind: "ok", msg: `Deposited ${fmtNumber(amt)} ${UNIT} — routed to the turn member.`, txid: txId });
         setBusy(false);
-        void chainRef.current.refresh();
       }, () => {
         setToast({ kind: "err", msg: "Deposit cancelled." });
         setBusy(false);
@@ -174,7 +205,7 @@ export function CircleSave() {
     [addLedger],
   );
 
-  // --- Authorize automation (stable — reads from refs) ---
+  // --- Authorize automation (split-only — no lock) ---
   const handleAuthorize = useCallback(() => {
     setToast(null);
     const addr = addressRef.current;
@@ -189,7 +220,7 @@ export function CircleSave() {
     const micro = BigInt(Math.round(cfg.contributionAmount * MICRO));
     setBusy(true);
     setToast({ kind: "info", msg: `Approve automation — route to ${turn.name}…` });
-    authorizeCircleAutomation(micro, cfg.lockBlock, turn.address, (txId) => {
+    authorizeCircleAutomation(micro, turn.address, (txId) => {
       setAutomation(true);
       saveJSON(STORAGE.automation, true);
       addLedger(`Automation authorized — auto-routing to ${turn.name}`, txId);
@@ -201,49 +232,7 @@ export function CircleSave() {
     });
   }, [addLedger]);
 
-  // --- Dispatch payout (stable — reads from refs) ---
-  const handleDispatch = useCallback(() => {
-    setToast(null);
-    const addr = addressRef.current;
-    if (!addr) return setToast({ kind: "err", msg: "Connect your wallet first." });
-    const cfg = configRef.current;
-    if (!cfg) return setToast({ kind: "err", msg: "Create your circle first." });
-    const curMembers = membersRef.current;
-    const curTurn = turnIndexRef.current;
-    const turn = curMembers[curTurn];
-    if (!turn) return setToast({ kind: "err", msg: "No current turn member." });
-    const micro = BigInt(chainRef.current.unlockedMicro);
-    if (micro <= 0n) return setToast({ kind: "err", msg: "Nothing unlocked to dispatch yet." });
-    setBusy(true);
-    dispatchPayout(micro, turn.address, (step, msg) => {
-      setToast({ kind: "info", msg: `Step ${step}/3: ${msg}` });
-    }, (txId) => {
-      const amt = microToToken(Number(micro));
-      setMembers((prev) => prev.map((m, i) => (i === curTurn ? { ...m, hasReceived: true } : m)));
-      const next = (curTurn + 1) % Math.max(1, curMembers.length);
-      setTurnIndex(next);
-      const allReceived = curMembers.every((m, i) => i === curTurn || m.hasReceived);
-      if (allReceived) {
-        setMembers((prev) => prev.map((m) => ({ ...m, hasReceived: false })));
-        addLedger(`🎉 Full cycle complete! Starting a new round.`, txId);
-      }
-      addLedger(`Payout dispatched — ${fmtNumber(amt)} ${UNIT} → ${turn.name}`, txId);
-      setAutomation(false);
-      saveJSON(STORAGE.automation, false);
-      setToast({
-        kind: "ok",
-        msg: `🎯 ${turn.name} received ${fmtNumber(amt)} ${UNIT}! Next up: ${curMembers[next]?.name}.`,
-        txid: txId,
-      });
-      setBusy(false);
-      void chainRef.current.refresh();
-    }, () => {
-      setToast({ kind: "err", msg: "Dispatch cancelled." });
-      setBusy(false);
-    });
-  }, [addLedger]);
-
-  // --- End circle (stable — reads from refs) ---
+  // --- End circle ---
   const handleEndCircle = useCallback(() => {
     const addr = addressRef.current;
     const cfg = configRef.current;
@@ -251,28 +240,11 @@ export function CircleSave() {
       setToast({ kind: "err", msg: "Only the creator can end the circle." });
       return;
     }
-    if (typeof window !== "undefined" && !window.confirm("End this circle? Remaining funds withdraw to you.")) return;
-    const micro = BigInt(chainRef.current.unlockedMicro);
-    if (micro > 0n) {
-      setBusy(true);
-      setToast({ kind: "info", msg: "Withdrawing remaining pool…" });
-      withdraw(micro, () => {
-        setEnded(true);
-        saveJSON(STORAGE.ended, true);
-        addLedger(`Circle ended by creator. Remaining ${fmtNumber(microToToken(Number(micro)))} ${UNIT} withdrawn.`);
-        setToast({ kind: "ok", msg: "Circle ended. Funds withdrawn to you." });
-        setBusy(false);
-        void chainRef.current.refresh();
-      }, () => {
-        setToast({ kind: "err", msg: "End circle cancelled." });
-        setBusy(false);
-      });
-    } else {
-      setEnded(true);
-      saveJSON(STORAGE.ended, true);
-      addLedger("Circle ended by creator.");
-      setToast({ kind: "ok", msg: "Circle ended." });
-    }
+    if (typeof window !== "undefined" && !window.confirm("End this circle? The circle will close.")) return;
+    setEnded(true);
+    saveJSON(STORAGE.ended, true);
+    addLedger("Circle ended by creator.");
+    setToast({ kind: "ok", msg: "Circle ended." });
   }, [addLedger]);
 
   // --- Invite ---
@@ -284,59 +256,47 @@ export function CircleSave() {
     addLedger(`${name} invited to the circle`);
   }, [addLedger]);
 
-  // --- Start a new circle (after ending the previous one) ---
+  // --- Start a new circle ---
   const handleNewCircle = useCallback(() => {
-    // Clear the old circle state
     setConfig(null);
     setEnded(false);
     setTurnIndex(0);
     setAutomation(false);
+    setPoolCollected(0);
     setMembers((prev) => prev.map((m) => ({ ...m, hasReceived: false })));
     saveJSON(STORAGE.config, null);
     saveJSON(STORAGE.ended, false);
     saveJSON(STORAGE.turn, 0);
     saveJSON(STORAGE.automation, false);
+    saveJSON(STORAGE.pool, 0);
     addLedger("Started fresh — ready to create a new circle.");
-    // Open the setup modal immediately
     openModal();
   }, [addLedger, openModal]);
 
   // --- Derived ---
   const isActive = !!config && !ended;
-  const poolReady = isActive && config ? chain.poolBalance >= config.targetPool : false;
+  const poolReady = isActive && config ? poolCollected >= config.targetPool : false;
   const turnMember = members[turnIndex];
 
-  // Ref to handleDispatch so the target-reached effect can call the latest
-  // version without depending on it (avoids rebuild loops).
-  const dispatchRef = useRef(handleDispatch);
-  useEffect(() => { dispatchRef.current = handleDispatch; }, [handleDispatch]);
-  // Ref to busy so the effect can check it without depending on it.
-  const busyRef = useRef(busy);
-  useEffect(() => { busyRef.current = busy; }, [busy]);
-
-  // Reactive target-reached trigger.
-  //   • autoDispatch ON  → automatically triggers the payout flow (Leather
-  //     popup appears — you just approve. Blockchains can't move money
-  //     without your signature.)
-  //   • autoDispatch OFF → shows a notification prompting manual dispatch.
+  // Reactive target-reached trigger
   const targetReachedRef = useRef(false);
   useEffect(() => {
     if (poolReady && !targetReachedRef.current && config) {
       targetReachedRef.current = true;
-      if (config.autoDispatch && !busyRef.current) {
+      if (config.autoDispatch) {
         setToast({
-          kind: "info",
-          msg: `🎯 Target reached! Auto-dispatching payout to ${turnMember?.name} — approve in your wallet.`,
+          kind: "ok",
+          msg: `🎯 Target reached! ${fmtNumber(config.targetPool)} ${UNIT} contributed. Advancing payout to ${turnMember?.name}.`,
         });
-        addLedger(`🎯 Target reached — auto-dispatching to ${turnMember?.name}`);
+        addLedger(`🎯 Target reached — auto-advancing to ${turnMember?.name}`);
         const t = window.setTimeout(() => {
-          dispatchRef.current();
-        }, 800);
+          advanceRef.current();
+        }, 1200);
         return () => window.clearTimeout(t);
       } else {
         setToast({
           kind: "ok",
-          msg: `🎯 Target reached! ${config.targetPool} ${UNIT} pooled. Please dispatch the payout to ${turnMember?.name}.`,
+          msg: `🎯 Target reached! ${fmtNumber(config.targetPool)} ${UNIT} contributed. Tap "Dispatch Payout" to send to ${turnMember?.name}.`,
         });
         addLedger(`🎯 Target reached — awaiting manual dispatch to ${turnMember?.name}`);
       }
@@ -417,17 +377,17 @@ export function CircleSave() {
         <ToastBar toast={toast} />
 
         {/* Pool ready banner */}
-        {poolReady && (
+        {poolReady && !config?.autoDispatch && (
           <div className="mb-6 p-4 rounded-xl bg-green-500/15 border border-green-500/40 text-green-300 text-sm flex items-center gap-3 animate-pulse">
             <span className="material-symbols-outlined">celebration</span>
             <span className="flex-1">
-              <strong>Target reached!</strong> Dispatch the pool to{" "}
+              <strong>Target reached!</strong> Dispatch the payout to{" "}
               <strong>{turnMember?.name}</strong> now.
             </span>
           </div>
         )}
 
-        {/* Ended banner — now with a Start New Circle button */}
+        {/* Ended banner */}
         {ended && (
           <div className="mb-6 p-6 rounded-xl bg-primary/10 border border-primary/30 text-sm flex items-center gap-4">
             <span className="material-symbols-outlined text-primary">autorenew</span>
@@ -463,11 +423,11 @@ export function CircleSave() {
         {/* Dashboard */}
         {config && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left: Circle + Actions */}
+            {/* Left */}
             <div className="lg:col-span-2 space-y-6">
               <CircleOverview
                 name={config.name}
-                poolBalance={chain.poolBalance}
+                poolBalance={poolCollected}
                 targetPool={config.targetPool}
                 contributionAmount={config.contributionAmount}
                 turnMember={turnMember}
@@ -483,16 +443,16 @@ export function CircleSave() {
                 isActive={isActive}
                 walletConnected={!!address}
                 poolReady={poolReady}
-                poolBalance={chain.poolBalance}
+                poolBalance={poolCollected}
                 automationAuthorized={automation}
                 turnMemberName={turnMember?.name}
                 onDeposit={handleDeposit}
                 onAuthorize={handleAuthorize}
-                onDispatch={handleDispatch}
+                onDispatch={advanceTurn}
               />
             </div>
 
-            {/* Right: Members + Ledger + ChainStatus */}
+            {/* Right */}
             <div className="space-y-6">
               <ChainStatus
                 connected={!!address}
@@ -505,7 +465,6 @@ export function CircleSave() {
                 members={members}
                 currentTurnIndex={turnIndex}
                 isActive={isActive}
-                perMemberBalances={chain.perMember}
                 onInvite={handleInvite}
               />
               <LedgerFeed ledger={ledger} />

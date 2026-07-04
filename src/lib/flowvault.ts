@@ -201,49 +201,35 @@ export function withdraw(
 // ---------------------------------------------------------------------------
 
 /**
- * Authorize automation: lock the contribution + auto-route to the turn member.
- * This is what makes deposits "flow" to the right person automatically.
+ * Authorize automation: split-only routing to the turn member.
+ * No lock — deposits route directly to the recipient at deposit time.
+ * (The old lock+split combo failed on-chain with u1004 because
+ * lockAmount + splitAmount > depositAmount.)
  */
 export function authorizeCircleAutomation(
   contributionMicro: bigint,
-  lockBlock: number,
   turnMemberAddress: string,
   onFinish: (txId: string) => void,
   onCancel: () => void,
 ): void {
   setRoutingRules(
-    contributionMicro,
-    lockBlock,
+    0n, // lockAmount = 0 (split-only, no lock)
+    0, // lockUntilBlock = 0 (irrelevant when no lock)
     turnMemberAddress, // split to the turn member
-    contributionMicro,
+    contributionMicro, // split the full contribution amount
     onFinish,
     onCancel,
   );
 }
 
 /**
- * Dispatch payout: withdraw the unlocked pool, then route it to the turn member.
- * Three wallet signatures: withdraw → set split → deposit.
+ * Dispatch is no longer an on-chain operation.
+ *
+ * In the split-only model, money routes to the turn member at deposit time.
+ * When the pool target is reached, the recipient has ALREADY been paid —
+ * so "dispatch" is just a UI action: advance the turn + reset the pool counter.
+ * No wallet signature needed.
  */
-export function dispatchPayout(
-  amountMicro: bigint,
-  turnMemberAddress: string,
-  onStep: (step: number, msg: string) => void,
-  onFinish: (txId: string) => void,
-  onCancel: () => void,
-): void {
-  // Step 1: withdraw the unlocked pool back to the caller
-  onStep(1, "Withdrawing unlocked pool…");
-  withdraw(amountMicro, () => {
-    // Step 2: set split routing to the turn member
-    onStep(2, `Setting route to recipient…`);
-    setRoutingRules(0n, 0, turnMemberAddress, amountMicro, () => {
-      // Step 3: deposit → contract routes funds to the turn member
-      onStep(3, "Sending to recipient…");
-      deposit(amountMicro, onFinish, onCancel);
-    }, onCancel);
-  }, onCancel);
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
