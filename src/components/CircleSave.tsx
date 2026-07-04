@@ -314,7 +314,7 @@ export function CircleSave() {
               Start Your Circle
             </button>
           )}
-          {config && isCreator && (
+          {config && !ended && isCreator && (
             <div className="flex gap-3 justify-center">
               <button
                 onClick={openModal}
@@ -327,9 +327,17 @@ export function CircleSave() {
                 disabled={busy}
                 className="border border-rose-500/40 text-rose-400 px-6 py-2 rounded-xl font-medium hover:bg-rose-500/10 transition-colors disabled:opacity-50"
               >
-                {ended ? "Circle Ended" : "End Circle"}
+                End Circle
               </button>
             </div>
+          )}
+          {ended && (
+            <button
+              onClick={handleNewCircle}
+              className="bg-primary-container text-on-primary-container px-8 py-3 rounded-xl font-bold neon-glow-orange hover:bg-secondary transition-colors"
+            >
+              🔄 Start New Circle
+            </button>
           )}
         </section>
 
