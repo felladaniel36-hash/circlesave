@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { RING_CIRCUMFERENCE, RING_RADIUS, UNIT, type CircleMember } from "@/lib/config";
 import { fmtNumber } from "@/lib/format";
 
@@ -17,7 +18,7 @@ interface CircleOverviewProps {
   circleEnded: boolean;
 }
 
-export function CircleOverview({
+export function CircleOverviewBase({
   name,
   poolBalance,
   targetPool,
@@ -158,3 +159,6 @@ export function CircleOverview({
     </div>
   );
 }
+
+// Memoized — only re-renders when its props actually change
+export const CircleOverview = memo(CircleOverviewBase);

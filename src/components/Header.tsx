@@ -1,15 +1,16 @@
 "use client";
 
+import { memo } from "react";
 import { shortenAddr } from "@/lib/format";
 
 interface HeaderProps {
   address: string | null;
   connecting: boolean;
-  onConnect: () => void;
+  onConnect: () => Promise<string | null>;
   onDisconnect: () => void;
 }
 
-export function Header({ address, connecting, onConnect, onDisconnect }: HeaderProps) {
+function HeaderBase({ address, connecting, onConnect, onDisconnect }: HeaderProps) {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-outline-variant">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -69,3 +70,6 @@ export function Header({ address, connecting, onConnect, onDisconnect }: HeaderP
     </header>
   );
 }
+
+// Memoized — only re-renders when address/connecting actually changes
+export const Header = memo(HeaderBase);

@@ -38,7 +38,7 @@ import {
   withdraw,
   computeLockBlock,
 } from "@/lib/flowvault";
-import { loadJSON, saveJSON, tokenToMicro, microToToken, fmtNumber } from "@/lib/format";
+import { loadJSON, saveJSON, microToToken, fmtNumber } from "@/lib/format";
 import { UNIT, MICRO } from "@/lib/config";
 
 export function CircleSave() {
@@ -54,11 +54,8 @@ export function CircleSave() {
   const [automation, setAutomation] = useState(false);
   const [ended, setEnded] = useState(false);
 
-  // --- Chain (aggregates pool across ALL members via MULTI-VAULT AGGREGATION) ---
-  const memberAddresses = useMemo(
-    () => members.map((m) => m.address),
-    [members],
-  );
+  // --- Chain (aggregates pool across ALL members) ---
+  const memberAddresses = useMemo(() => members.map((m) => m.address), [members]);
   const chain = useChainState(address, memberAddresses);
 
   // --- UI state ---
@@ -67,8 +64,23 @@ export function CircleSave() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastType | null>(null);
 
+  // --- Refs to hold latest values for use in stable callbacks ---
+  // This breaks the rebuild chain: callbacks read from refs instead of
+  // depending on `chain`, so they never rebuild on every 20s poll.
+  const chainRef = useRef(chain);
+  useEffect(() => { chainRef.current = chain; }, [chain]);
+
   const configRef = useRef(config);
   useEffect(() => { configRef.current = config; }, [config]);
+
+  const membersRef = useRef(members);
+  useEffect(() => { membersRef.current = members; }, [members]);
+
+  const turnIndexRef = useRef(turnIndex);
+  useEffect(() => { turnIndexRef.current = turnIndex; }, [turnIndex]);
+
+  const addressRef = useRef(address);
+  useEffect(() => { addressRef.current = address; }, [address]);
 
   // --- Restore from localStorage on mount ---
   useEffect(() => {
@@ -106,10 +118,12 @@ export function CircleSave() {
     setShowSetup(true);
   }, []);
 
-  // --- Create circle ---
+  // --- Create circle (stable — reads chain block from ref) ---
   const handleCreate = useCallback(
     (name: string, target: number, contribution: number) => {
-      if (!address || chain.currentBlock <= 0) {
+      const addr = addressRef.current;
+      const block = chainRef.current.currentBlock;
+      if (!addr || block <= 0) {
         setToast({ kind: "err", msg: "Connect your wallet first." });
         return;
       }
@@ -117,9 +131,9 @@ export function CircleSave() {
         name,
         targetPool: target,
         contributionAmount: contribution,
-        lockBlock: computeLockBlock(chain.currentBlock),
+        lockBlock: computeLockBlock(block),
         createdAt: Date.now(),
-        creatorAddress: address,
+        creatorAddress: addr,
       };
       setConfig(cfg);
       setEnded(false);
@@ -128,18 +142,19 @@ export function CircleSave() {
       saveJSON(STORAGE.config, cfg);
       saveJSON(STORAGE.ended, false);
       saveJSON(STORAGE.turn, 0);
-      addLedger(`Circle "${name}" created — target ${target} ${UNIT}, ${members.length} members`);
+      addLedger(`Circle "${name}" created — target ${target} ${UNIT}, ${membersRef.current.length} members`);
       closeModal();
       setToast({ kind: "ok", msg: `Circle live! Target: ${target} ${UNIT}. Day 1 begins now.` });
     },
-    [address, chain.currentBlock, members.length, addLedger, closeModal],
+    [addLedger, closeModal],
   );
 
-  // --- Deposit ---
+  // --- Deposit (stable — reads from refs) ---
   const handleDeposit = useCallback(
     (amountMicro: bigint) => {
       setToast(null);
-      if (!address) return setToast({ kind: "err", msg: "Connect your wallet first." });
+      const addr = addressRef.current;
+      if (!addr) return setToast({ kind: "err", msg: "Connect your wallet first." });
       const cfg = configRef.current;
       if (!cfg) return setToast({ kind: "err", msg: "Create your circle first." });
       setBusy(true);
@@ -149,24 +164,26 @@ export function CircleSave() {
         addLedger(`Deposited ${fmtNumber(amt)} ${UNIT} to circle pool`, txId);
         setToast({ kind: "ok", msg: `Deposited ${fmtNumber(amt)} ${UNIT}.`, txid: txId });
         setBusy(false);
-        void chain.refresh();
+        void chainRef.current.refresh();
       }, () => {
         setToast({ kind: "err", msg: "Deposit cancelled." });
         setBusy(false);
       });
     },
-    [address, addLedger, chain],
+    [addLedger],
   );
 
-  // --- Authorize automation ---
+  // --- Authorize automation (stable — reads from refs) ---
   const handleAuthorize = useCallback(() => {
     setToast(null);
-    if (!address) return setToast({ kind: "err", msg: "Connect your wallet first." });
+    const addr = addressRef.current;
+    if (!addr) return setToast({ kind: "err", msg: "Connect your wallet first." });
     const cfg = configRef.current;
     if (!cfg) return setToast({ kind: "err", msg: "Create your circle first." });
-    const turn = members[turnIndex];
+    const curMembers = membersRef.current;
+    const turn = curMembers[turnIndexRef.current];
     if (!turn) return setToast({ kind: "err", msg: "No member to route to." });
-    if (turn.address === address)
+    if (turn.address === addr)
       return setToast({ kind: "info", msg: "It's your turn to receive — others route to you." });
     const micro = BigInt(Math.round(cfg.contributionAmount * MICRO));
     setBusy(true);
@@ -181,30 +198,30 @@ export function CircleSave() {
       setToast({ kind: "err", msg: "Authorization cancelled." });
       setBusy(false);
     });
-  }, [address, members, turnIndex, addLedger]);
+  }, [addLedger]);
 
-  // --- Dispatch payout ---
+  // --- Dispatch payout (stable — reads from refs) ---
   const handleDispatch = useCallback(() => {
     setToast(null);
-    if (!address) return setToast({ kind: "err", msg: "Connect your wallet first." });
+    const addr = addressRef.current;
+    if (!addr) return setToast({ kind: "err", msg: "Connect your wallet first." });
     const cfg = configRef.current;
     if (!cfg) return setToast({ kind: "err", msg: "Create your circle first." });
-    const turn = members[turnIndex];
+    const curMembers = membersRef.current;
+    const curTurn = turnIndexRef.current;
+    const turn = curMembers[curTurn];
     if (!turn) return setToast({ kind: "err", msg: "No current turn member." });
-    const micro = BigInt(chain.unlockedMicro);
+    const micro = BigInt(chainRef.current.unlockedMicro);
     if (micro <= 0n) return setToast({ kind: "err", msg: "Nothing unlocked to dispatch yet." });
     setBusy(true);
     dispatchPayout(micro, turn.address, (step, msg) => {
       setToast({ kind: "info", msg: `Step ${step}/3: ${msg}` });
     }, (txId) => {
       const amt = microToToken(Number(micro));
-      // Mark turn member received
-      setMembers((prev) => prev.map((m, i) => (i === turnIndex ? { ...m, hasReceived: true } : m)));
-      // Advance turn
-      const next = (turnIndex + 1) % Math.max(1, members.length);
+      setMembers((prev) => prev.map((m, i) => (i === curTurn ? { ...m, hasReceived: true } : m)));
+      const next = (curTurn + 1) % Math.max(1, curMembers.length);
       setTurnIndex(next);
-      // Check full cycle
-      const allReceived = members.every((m, i) => i === turnIndex || m.hasReceived);
+      const allReceived = curMembers.every((m, i) => i === curTurn || m.hasReceived);
       if (allReceived) {
         setMembers((prev) => prev.map((m) => ({ ...m, hasReceived: false })));
         addLedger(`🎉 Full cycle complete! Starting a new round.`, txId);
@@ -214,25 +231,27 @@ export function CircleSave() {
       saveJSON(STORAGE.automation, false);
       setToast({
         kind: "ok",
-        msg: `🎯 ${turn.name} received ${fmtNumber(amt)} ${UNIT}! Next up: ${members[next]?.name}.`,
+        msg: `🎯 ${turn.name} received ${fmtNumber(amt)} ${UNIT}! Next up: ${curMembers[next]?.name}.`,
         txid: txId,
       });
       setBusy(false);
-      void chain.refresh();
+      void chainRef.current.refresh();
     }, () => {
       setToast({ kind: "err", msg: "Dispatch cancelled." });
       setBusy(false);
     });
-  }, [address, chain.unlockedMicro, members, turnIndex, addLedger, chain]);
+  }, [addLedger]);
 
-  // --- End circle ---
+  // --- End circle (stable — reads from refs) ---
   const handleEndCircle = useCallback(() => {
-    if (!address || address !== config?.creatorAddress) {
+    const addr = addressRef.current;
+    const cfg = configRef.current;
+    if (!addr || addr !== cfg?.creatorAddress) {
       setToast({ kind: "err", msg: "Only the creator can end the circle." });
       return;
     }
     if (typeof window !== "undefined" && !window.confirm("End this circle? Remaining funds withdraw to you.")) return;
-    const micro = BigInt(chain.unlockedMicro);
+    const micro = BigInt(chainRef.current.unlockedMicro);
     if (micro > 0n) {
       setBusy(true);
       setToast({ kind: "info", msg: "Withdrawing remaining pool…" });
@@ -242,7 +261,7 @@ export function CircleSave() {
         addLedger(`Circle ended by creator. Remaining ${fmtNumber(microToToken(Number(micro)))} ${UNIT} withdrawn.`);
         setToast({ kind: "ok", msg: "Circle ended. Funds withdrawn to you." });
         setBusy(false);
-        void chain.refresh();
+        void chainRef.current.refresh();
       }, () => {
         setToast({ kind: "err", msg: "End circle cancelled." });
         setBusy(false);
@@ -253,7 +272,7 @@ export function CircleSave() {
       addLedger("Circle ended by creator.");
       setToast({ kind: "ok", msg: "Circle ended." });
     }
-  }, [address, config, chain, addLedger]);
+  }, [addLedger]);
 
   // --- Invite ---
   const handleInvite = useCallback((name: string, addr: string) => {
@@ -315,7 +334,7 @@ export function CircleSave() {
       <Header
         address={address}
         connecting={wallet.connecting}
-        onConnect={() => void wallet.connectWallet()}
+        onConnect={wallet.connectWallet}
         onDisconnect={wallet.disconnectWallet}
       />
 

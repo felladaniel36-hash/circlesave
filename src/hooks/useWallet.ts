@@ -3,8 +3,11 @@
 // ===========================================================================
 // useWallet — connect/disconnect with timeout + session persistence
 // ===========================================================================
+// Returns a FULLY STABLE object (memoized) so consumers never re-render
+// unless a primitive value actually changes.
+// ===========================================================================
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   connect,
   disconnect,
@@ -14,12 +17,21 @@ import {
 import { NETWORK } from "@/lib/config";
 import { extractStxAddress } from "@/lib/wallet";
 
-export function useWallet() {
+export interface WalletState {
+  address: string | null;
+  error: string;
+  connecting: boolean;
+  connectWallet: () => Promise<string | null>;
+  disconnectWallet: () => void;
+  clearError: () => void;
+}
+
+export function useWallet(): WalletState {
   const [address, setAddress] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [connecting, setConnecting] = useState(false);
 
-  // Restore session on mount
+  // Restore session on mount — runs ONCE
   useEffect(() => {
     if (isConnected()) {
       const stored = getLocalStorage();
@@ -28,11 +40,11 @@ export function useWallet() {
     }
   }, []);
 
+  // Stable callbacks (empty deps)
   const connectWallet = useCallback(async (): Promise<string | null> => {
     setError("");
     setConnecting(true);
     try {
-      // Race against a 20s timeout so the button can never hang forever
       const connectPromise = connect({ network: NETWORK });
       const timeoutPromise = new Promise<never>((_, reject) =>
         window.setTimeout(() => reject(new Error("WALLET_TIMEOUT")), 20000),
@@ -72,12 +84,18 @@ export function useWallet() {
     setError("");
   }, []);
 
-  return {
-    address,
-    error,
-    connecting,
-    connectWallet,
-    disconnectWallet,
-    clearError: () => setError(""),
-  };
+  const clearError = useCallback(() => setError(""), []);
+
+  // Memoized return — only changes when a primitive actually changes
+  return useMemo(
+    () => ({
+      address,
+      error,
+      connecting,
+      connectWallet,
+      disconnectWallet,
+      clearError,
+    }),
+    [address, error, connecting, connectWallet, disconnectWallet, clearError],
+  );
 }
