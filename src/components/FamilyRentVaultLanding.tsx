@@ -58,6 +58,7 @@ interface Contributor {
 interface VaultConfig {
   goal: number; // target USDCx (token-scale)
   deadlineBlock: number; // absolute Stacks block height
+  endDateIso: string; // yyyy-mm-dd — the exact end date the user picked (for display)
   landlord: string; // landlord STX address
   createdAt: number;
 }
@@ -157,6 +158,23 @@ function toDdMmYyyy(iso: string): string {
   return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
+/** Today's date in yyyy-mm-dd using LOCAL time (not UTC). Fixes timezone mismatch. */
+function localToday(): string {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/** Add N days to a yyyy-mm-dd date, return yyyy-mm-dd. Uses local time. */
+function addDays(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -235,11 +253,9 @@ export function FamilyRentVaultLanding() {
 
   // Open the modal — auto-set the start date to today + default end (today + 7)
   const openVaultSetup = useCallback(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const defaultEnd = new Date();
-    defaultEnd.setDate(defaultEnd.getDate() + 7);
+    const today = localToday(); // LOCAL today (fixes UTC timezone bug)
     setSetupStartDate(today);
-    setSetupEndDateDisplay(toDdMmYyyy(defaultEnd.toISOString().slice(0, 10)));
+    setSetupEndDateDisplay(toDdMmYyyy(addDays(today, 7)));
     setSetupError("");
     setModalClosing(false);
     setShowVaultSetup(true);
@@ -405,6 +421,7 @@ export function FamilyRentVaultLanding() {
     const cfg: VaultConfig = {
       goal: goalTokens,
       deadlineBlock,
+      endDateIso: setupDeadlineDate,
       landlord,
       createdAt: Date.now(),
     };
@@ -465,7 +482,7 @@ export function FamilyRentVaultLanding() {
           onFinish: (payload) => {
             setStatus({
               kind: "ok",
-              msg: `Locked ${Number(micro) / MICRO} USDCx until block #${cfg.deadlineBlock.toLocaleString()}.`,
+              msg: `Deposited ${Number(micro) / MICRO} USDCx. Funds are locked until your deadline.`,
               txid: payload.txId,
             });
             setDepositAmount("");
@@ -533,7 +550,7 @@ export function FamilyRentVaultLanding() {
               functionArgs: [contractPrincipalCV(TOKEN_CONTRACT_ADDRESS, TOKEN_CONTRACT_NAME), uintCV(micro)],
               postConditionMode: PostConditionMode.Allow,
               onFinish: (payload) => {
-                setStatus({ kind: "ok", msg: `Routed ${Number(micro) / MICRO} USDCx to the landlord.`, txid: payload.txId });
+                setStatus({ kind: "ok", msg: `Sent ${Number(micro) / MICRO} USDCx to the recipient.`, txid: payload.txId });
                 setBusy(false);
                 void refreshVaultState();
               },
@@ -723,7 +740,7 @@ export function FamilyRentVaultLanding() {
                 <div className="text-right">
                   <p className="font-label-caps text-on-surface-variant mb-1">Unlocks On</p>
                   <p className="font-data-mono text-on-surface">
-                    {deadlineBlock > 0 ? blocksToDate(deadlineBlock, currentBlock) : "—"}
+                    {vaultConfig?.endDateIso ? toDdMmYyyy(vaultConfig.endDateIso) : "—"}
                   </p>
                 </div>
               </div>
@@ -786,7 +803,7 @@ export function FamilyRentVaultLanding() {
                 </button>
                 {!settlementReady && vaultConfig && currentBlock > 0 && (
                   <p className="font-body-sm text-on-surface-variant mt-3">
-                    Unlocks in ~{blocksToHuman(blocksRemaining)} ({blocksToDate(deadlineBlock, currentBlock)}).
+                    Unlocks in ~{blocksToHuman(blocksRemaining)}{vaultConfig.endDateIso ? ` on ${toDdMmYyyy(vaultConfig.endDateIso)}` : ""}.
                   </p>
                 )}
               </div>
@@ -847,13 +864,30 @@ export function FamilyRentVaultLanding() {
                   <p className="font-label-caps text-on-surface-variant">Recent Activity</p>
                 </div>
                 <div>
-                  <div className="px-6 py-4 flex items-center justify-between border-b border-zinc-900/50">
-                    <div className="flex items-center gap-3">
-                      <span className="material-symbols-outlined text-primary text-sm">receipt_long</span>
-                      <span className="font-body-sm">Vault created</span>
+                  {vaultConfig ? (
+                    <div className="px-6 py-4 flex items-center justify-between border-b border-zinc-900/50">
+                      <div className="flex items-center gap-3">
+                        <span className="material-symbols-outlined text-primary text-sm">savings</span>
+                        <span className="font-body-sm">Vault created — goal {vaultConfig.goal.toLocaleString()} USDCx</span>
+                      </div>
+                      <span className="font-data-mono text-xs text-zinc-500">
+                        {fmtDate(localToday()) === fmtDate(new Date(vaultConfig.createdAt).toISOString().slice(0, 10)) ? "today" : new Date(vaultConfig.createdAt).toLocaleDateString("en-GB")}
+                      </span>
                     </div>
-                    <span className="font-data-mono text-xs text-zinc-500">{vaultConfig ? "just now" : "—"}</span>
-                  </div>
+                  ) : (
+                    <div className="px-6 py-6 text-center text-on-surface-variant font-body-sm">
+                      No activity yet.
+                    </div>
+                  )}
+                  {contributorsList.length > 0 && (
+                    <div className="px-6 py-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="material-symbols-outlined text-primary text-sm">group_add</span>
+                        <span className="font-body-sm">{contributorsList.length} {contributorsList.length === 1 ? "member" : "members"} added</span>
+                      </div>
+                      <span className="font-data-mono text-xs text-zinc-500">—</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -974,10 +1008,14 @@ export function FamilyRentVaultLanding() {
 
               <button
                 onClick={createVault}
-                disabled={currentBlock <= 0}
+                disabled={currentBlock <= 0 || setupDays === null}
                 className="w-full bg-primary-container text-on-primary-container font-bold py-4 rounded-xl hover:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {currentBlock <= 0 ? "Connect wallet to continue" : (vaultConfig ? "Update Vault" : "Create Vault")}
+                {currentBlock <= 0
+                  ? "Connect wallet to continue"
+                  : setupDays === null
+                    ? "Enter a valid end date (min 1 day)"
+                    : (vaultConfig ? "Update Vault" : "Create Vault")}
               </button>
             </div>
           </div>
