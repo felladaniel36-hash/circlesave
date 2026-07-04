@@ -13,7 +13,7 @@
 // (lockAmount=0) routes the full deposit to the recipient instantly.
 // ===========================================================================
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "./Header";
 import { ChainStatus } from "./ChainStatus";
 import { CircleOverview } from "./CircleOverview";
@@ -54,8 +54,7 @@ export function CircleSave() {
   const [poolCollected, setPoolCollected] = useState(0); // total contributed this round
 
   // --- Chain (block height for ChainStatus display) ---
-  const memberAddresses = useMemo(() => members.map((m) => m.address), [members]);
-  const chain = useChainState(address, memberAddresses);
+  const chain = useChainState(address);
 
   // --- UI state ---
   const [showSetup, setShowSetup] = useState(false);
@@ -375,6 +374,18 @@ export function CircleSave() {
           </div>
         )}
         <ToastBar toast={toast} />
+
+        {/* Re-authorize banner (turn changed — routing needs re-pointing) */}
+        {isActive && !automation && poolCollected < (config?.targetPool ?? 0) && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm flex items-center gap-3">
+            <span className="material-symbols-outlined">sync</span>
+            <span className="flex-1">
+              <strong>Re-authorize routing.</strong> The turn moved to{" "}
+              <strong>{turnMember?.name}</strong>. Tap{" "}
+              <em>Authorize Automation Rules</em> so your deposits route to them.
+            </span>
+          </div>
+        )}
 
         {/* Pool ready banner */}
         {poolReady && !config?.autoDispatch && (

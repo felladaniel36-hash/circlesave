@@ -34,10 +34,6 @@ export const UNIT = "USDCx";
 // ~10 min per Stacks block (used only for cosmetic time estimates)
 export const BLOCK_TIME_MIN = 10;
 
-// Far-future lock horizon so deposits stay put until manually dispatched.
-// ~52,560 blocks ≈ 1 year. The circle is goal-based, not time-based.
-export const LOCK_HORIZON_BLOCKS = 52560;
-
 // ---------------------------------------------------------------------------
 // UI constants
 // ---------------------------------------------------------------------------

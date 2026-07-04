@@ -1,13 +1,14 @@
 // ===========================================================================
 // FlowVault Backend Layer
 // ===========================================================================
-// This is the BRIDGE between the CircleSave frontend and the Stacks
-// blockchain. Every on-chain read and write flows through here.
+// The bridge between the CircleSave frontend and the Stacks blockchain.
+//
+// MODEL (split-only): Deposits route to the turn member at deposit time via
+// the FlowVault split primitive. The ring tracks total contributed; when the
+// target is reached the turn advances and routing re-points to the next member.
 //
 // READS  → fetchCallReadOnlyFunction (no wallet signature needed)
 // WRITES → openContractCall (wallet signs the transaction)
-//
-// Importing this module is how the frontend "talks to the backend."
 // ===========================================================================
 
 import {
@@ -21,13 +22,7 @@ import {
   PostConditionMode,
 } from "@stacks/transactions";
 import { openContractCall } from "@stacks/connect";
-import {
-  FLOWVAULT,
-  USDCX,
-  NETWORK,
-  LOCK_HORIZON_BLOCKS,
-  type VaultState,
-} from "./config";
+import { FLOWVAULT, USDCX, NETWORK } from "./config";
 
 // ---------------------------------------------------------------------------
 // Contract IDs (for display)
@@ -53,76 +48,11 @@ export async function getCurrentBlock(senderAddress: string): Promise<number> {
   return toUint(cvToValue(cv, true));
 }
 
-/** Read a user's full vault state (balances + lock info). */
-export async function getVaultState(senderAddress: string): Promise<VaultState> {
-  const cv = await fetchCallReadOnlyFunction({
-    contractAddress: FLOWVAULT.address,
-    contractName: FLOWVAULT.name,
-    functionName: "get-vault-state",
-    functionArgs: [principalCV(senderAddress)],
-    senderAddress,
-    network: NETWORK,
-  });
-  const state = cvToValue(cv, true) as Record<string, unknown>;
-  return {
-    totalBalance: toUint(state["total-balance"]),
-    lockedBalance: toUint(state["locked-balance"]),
-    unlockedBalance: toUint(state["unlocked-balance"]),
-    lockUntilBlock: toUint(state["lock-until-block"]),
-    currentBlock: toUint(state["current-block"]),
-  };
-}
-
-/**
- * MULTI-VAULT AGGREGATION — the heart of the cooperative pool.
- *
- * Loops through EVERY member address in the circle and reads their individual
- * vault balance via a read-only contract call. Sums them into one combined
- * total — the true cooperative savings pool.
- *
- * This is how the dashboard reflects EVERYONE's contributions, not just the
- * connected wallet's.
- *
- * @param memberAddresses  Array of Stacks addresses (each member)
- * @param senderAddress    Any valid address used as the simulated caller
- * @returns micro-units total across all members
- */
-export async function getTotalCirclePool(
-  memberAddresses: string[],
-  senderAddress: string,
-): Promise<{ totalMicro: number; perMember: Record<string, number> }> {
-  if (memberAddresses.length === 0) {
-    return { totalMicro: 0, perMember: {} };
-  }
-
-  // Read each member's vault in parallel
-  const results = await Promise.all(
-    memberAddresses.map(async (addr) => {
-      try {
-        const state = await getVaultState(addr);
-        return { addr, balance: state.totalBalance };
-      } catch {
-        // A single member's read failing shouldn't blank the whole pool
-        return { addr, balance: 0 };
-      }
-    }),
-  );
-
-  const perMember: Record<string, number> = {};
-  let totalMicro = 0;
-  for (const r of results) {
-    perMember[r.addr] = r.balance;
-    totalMicro += r.balance;
-  }
-
-  return { totalMicro, perMember };
-}
-
 // ---------------------------------------------------------------------------
 // WRITES — wallet-signed transactions via openContractCall
 // ---------------------------------------------------------------------------
 
-/** Configure lock + split routing rules for the caller. */
+/** Configure routing rules (split-only in CircleSave's model). */
 export function setRoutingRules(
   lockAmountMicro: bigint,
   lockUntilBlock: number,
@@ -173,38 +103,13 @@ export function deposit(
   });
 }
 
-/** Withdraw unlocked USDCx from the vault. */
-export function withdraw(
-  amountMicro: bigint,
-  onFinish: (txId: string) => void,
-  onCancel: () => void,
-): void {
-  openContractCall({
-    network: NETWORK,
-    contractAddress: FLOWVAULT.address,
-    contractName: FLOWVAULT.name,
-    functionName: "withdraw",
-    functionArgs: [
-      contractPrincipalCV(USDCX.address, USDCX.name),
-      uintCV(amountMicro),
-    ],
-    postConditionMode: PostConditionMode.Allow,
-    onFinish: (payload: { txId?: string }) => {
-      onFinish(payload.txId ?? "wallet-submitted");
-    },
-    onCancel,
-  });
-}
-
 // ---------------------------------------------------------------------------
-// High-level CircleSave operations (composing the primitives above)
+// High-level CircleSave operations
 // ---------------------------------------------------------------------------
 
 /**
  * Authorize automation: split-only routing to the turn member.
  * No lock — deposits route directly to the recipient at deposit time.
- * (The old lock+split combo failed on-chain with u1004 because
- * lockAmount + splitAmount > depositAmount.)
  */
 export function authorizeCircleAutomation(
   contributionMicro: bigint,
@@ -213,7 +118,7 @@ export function authorizeCircleAutomation(
   onCancel: () => void,
 ): void {
   setRoutingRules(
-    0n, // lockAmount = 0 (split-only, no lock)
+    0n, // lockAmount = 0 (split-only)
     0, // lockUntilBlock = 0 (irrelevant when no lock)
     turnMemberAddress, // split to the turn member
     contributionMicro, // split the full contribution amount
@@ -222,23 +127,9 @@ export function authorizeCircleAutomation(
   );
 }
 
-/**
- * Dispatch is no longer an on-chain operation.
- *
- * In the split-only model, money routes to the turn member at deposit time.
- * When the pool target is reached, the recipient has ALREADY been paid —
- * so "dispatch" is just a UI action: advance the turn + reset the pool counter.
- * No wallet signature needed.
- */
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Compute the far-future lock block for a goal-based circle. */
-export function computeLockBlock(currentBlock: number): number {
-  return currentBlock + LOCK_HORIZON_BLOCKS;
-}
 
 /** Coerce a parsed Clarity uint to a JS number. */
 function toUint(v: unknown): number {
