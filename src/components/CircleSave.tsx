@@ -61,6 +61,11 @@ export function CircleSave() {
   const [modalClosing, setModalClosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastType | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // --- Refs for stable callbacks ---
   const configRef = useRef(config);
@@ -484,117 +489,119 @@ export function CircleSave() {
         )}
 
         {/* How It Works & FAQ Section for Judges */}
-        <div className="mt-12 glass-panel p-8 rounded-xl border border-zinc-800/80">
-          <div className="flex items-center gap-3 mb-6">
-            <span className="material-symbols-outlined text-primary text-3xl">help_outline</span>
-            <h3 className="text-2xl font-bold text-white">How It Works & FAQ — Judge's Quick Reference</h3>
-          </div>
+        {mounted && (
+          <div className="mt-12 glass-panel p-8 rounded-xl border border-zinc-800/80">
+            <div className="flex items-center gap-3 mb-6">
+              <span className="material-symbols-outlined text-primary text-3xl">help_outline</span>
+              <h3 className="text-2xl font-bold text-white">How It Works & FAQ — Judge's Quick Reference</h3>
+            </div>
 
-          {/* Quick Start Guide Banner */}
-          <div className="mb-8 p-6 bg-primary/10 border border-primary/20 rounded-lg">
-            <h4 className="font-bold text-white flex items-center gap-2 mb-4 text-base">
-              <span className="material-symbols-outlined text-primary text-lg">play_circle</span>
-              Step-by-Step: How to Run a Perfect CircleSave Simulation
-            </h4>
+            {/* Quick Start Guide Banner */}
+            <div className="mb-8 p-6 bg-primary/10 border border-primary/20 rounded-lg">
+              <h4 className="font-bold text-white flex items-center gap-2 mb-4 text-base">
+                <span className="material-symbols-outlined text-primary text-lg">play_circle</span>
+                Step-by-Step: How to Run a Perfect CircleSave Simulation
+              </h4>
+              
+              <div className="space-y-6 text-sm text-on-surface-variant">
+                {/* Step 1 */}
+                <div className="border-l-2 border-primary/30 pl-4">
+                  <h5 className="font-bold text-white mb-1 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">1</span>
+                    Connect &amp; Initialize the Circle
+                  </h5>
+                  <p className="leading-relaxed">
+                    Connect your Stacks Testnet Wallet (Leather recommended) to the app. Once connected, click the <strong className="text-white">"Start Your Circle"</strong> button. Inside the setup modal, input your custom Circle Name, configure your custom Target Pool milestone, specify your Contribution Amount Per Member, and toggle <strong className="text-white">"Automatic Payout" ON</strong> to authorize hands-free rotation.
+                  </p>
+                </div>
+
+                {/* Step 2 */}
+                <div className="border-l-2 border-primary/30 pl-4">
+                  <h5 className="font-bold text-white mb-1 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">2</span>
+                    Authorize On-Chain Automation Rules
+                  </h5>
+                  <p className="leading-relaxed">
+                    In the <em className="text-white">Financial Actions</em> panel, click <strong className="text-white">"Authorize Automation Rules"</strong>. This requests a Leather wallet transaction that sets your routing rules directly on the FlowVault smart contract. Under the hood, this configures the contract to automatically forward your deposit amounts to whoever is the current active turn recipient.
+                  </p>
+                </div>
+
+                {/* Step 3 */}
+                <div className="border-l-2 border-primary/30 pl-4">
+                  <h5 className="font-bold text-white mb-1 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">3</span>
+                    Deposit &amp; Auto-Route Funds
+                  </h5>
+                  <p className="leading-relaxed">
+                    Navigate to the <em className="text-white">Manual Deposit Boost</em> field and enter your contribution amount (matching your per-member setup limit, e.g., 10 USDCx). Click <strong className="text-white">"Deposit Boost"</strong>. Once approved in your wallet, the FlowVault split primitive intercepts the deposit on-chain and dispatches it directly to the active turn member's wallet address.
+                  </p>
+                </div>
+
+                {/* Step 4 */}
+                <div className="border-l-2 border-primary/30 pl-4">
+                  <h5 className="font-bold text-white mb-1 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">4</span>
+                    Achieve Target &amp; Rotate Turns
+                  </h5>
+                  <p className="leading-relaxed">
+                    Submit contributions from circle members to fill the progress ring. The moment your aggregated contributions hit 100% of your target milestone:
+                  </p>
+                  <ul className="list-disc pl-5 mt-1 space-y-1 text-xs">
+                    <li>The FlowVault router automatically transfers the complete pool balance directly to the active member's address.</li>
+                    <li>The progress tracker resets cleanly back to <strong className="text-white">0%</strong>.</li>
+                    <li>The system shifts the active pointer to the next member in the sequence, ready for the next round.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
             
-            <div className="space-y-6 text-sm text-on-surface-variant">
-              {/* Step 1 */}
-              <div className="border-l-2 border-primary/30 pl-4">
-                <h5 className="font-bold text-white mb-1 flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">1</span>
-                  Connect &amp; Initialize the Circle
-                </h5>
-                <p className="leading-relaxed">
-                  Connect your Stacks Testnet Wallet (Leather recommended) to the app. Once connected, click the <strong className="text-white">"Start Your Circle"</strong> button. Inside the setup modal, input your custom Circle Name, configure your custom Target Pool milestone, specify your Contribution Amount Per Member, and toggle <strong className="text-white">"Automatic Payout" ON</strong> to authorize hands-free rotation.
-                </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
+                    <span className="material-symbols-outlined text-sm">account_balance_wallet</span>
+                    How do other members contribute to the vault?
+                  </h4>
+                  <p className="text-on-surface-variant leading-relaxed">
+                    In a production environment, each participant connects their own Leather Wallet. They click <strong className="text-white">"Authorize Automation Rules"</strong> to sign a transaction specifying the active turn recipient on-chain. When they deposit, FlowVault's Split primitive intercepts the deposit and routes it peer-to-peer instantly.
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
+                    <span className="material-symbols-outlined text-sm">group_add</span>
+                    If I invite a new member, are they added to the rotation?
+                  </h4>
+                  <p className="text-on-surface-variant leading-relaxed">
+                    Yes. Inviting a member appends them to the end of the rotation list. The sequential turn-based engine will cycle through to them once the active members ahead of them have successfully completed their respective rounds.
+                  </p>
+                </div>
               </div>
 
-              {/* Step 2 */}
-              <div className="border-l-2 border-primary/30 pl-4">
-                <h5 className="font-bold text-white mb-1 flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">2</span>
-                  Authorize On-Chain Automation Rules
-                </h5>
-                <p className="leading-relaxed">
-                  In the <em className="text-white">Financial Actions</em> panel, click <strong className="text-white">"Authorize Automation Rules"</strong>. This requests a Leather wallet transaction that sets your routing rules directly on the FlowVault smart contract. Under the hood, this configures the contract to automatically forward your deposit amounts to whoever is the current active turn recipient.
-                </p>
-              </div>
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
+                    <span className="material-symbols-outlined text-sm">rotate_left</span>
+                    Why is Kwame already in the list?
+                  </h4>
+                  <p className="text-on-surface-variant leading-relaxed">
+                    To keep the MVP testing experience smooth and immediately interactive for judges! Rather than forcing you to type and coordinate multiple fake wallet addresses manually, this pre-configured member demonstrates how the automated split-routings and commitment vault reserves behave right out of the box.
+                  </p>
+                </div>
 
-              {/* Step 3 */}
-              <div className="border-l-2 border-primary/30 pl-4">
-                <h5 className="font-bold text-white mb-1 flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">3</span>
-                  Deposit &amp; Auto-Route Funds
-                </h5>
-                <p className="leading-relaxed">
-                  Navigate to the <em className="text-white">Manual Deposit Boost</em> field and enter your contribution amount (matching your per-member setup limit, e.g., 10 USDCx). Click <strong className="text-white">"Deposit Boost"</strong>. Once approved in your wallet, the FlowVault split primitive intercepts the deposit on-chain and dispatches it directly to the active turn member's wallet address.
-                </p>
-              </div>
-
-              {/* Step 4 */}
-              <div className="border-l-2 border-primary/30 pl-4">
-                <h5 className="font-bold text-white mb-1 flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">4</span>
-                  Achieve Target &amp; Rotate Turns
-                </h5>
-                <p className="leading-relaxed">
-                  Submit contributions from circle members to fill the progress ring. The moment your aggregated contributions hit 100% of your target milestone:
-                </p>
-                <ul className="list-disc pl-5 mt-1 space-y-1 text-xs">
-                  <li>The FlowVault router automatically transfers the complete pool balance directly to the active member's address.</li>
-                  <li>The progress tracker resets cleanly back to <strong className="text-white">0%</strong>.</li>
-                  <li>The system shifts the active pointer to the next member in the sequence, ready for the next round.</li>
-                </ul>
+                <div>
+                  <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
+                    <span className="material-symbols-outlined text-sm">verified_user</span>
+                    Is this custody-free? Where is the money held?
+                  </h4>
+                  <p className="text-on-surface-variant leading-relaxed">
+                    CircleSave is completely <strong className="text-white">non-custodial</strong>. No funds are ever held by a centralized backend. Every routing rule is written directly to the FlowVault smart contract, and all deposit routing is executed trustlessly peer-to-peer at deposit time on the Stacks blockchain.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
-            <div className="space-y-4">
-              <div>
-                <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
-                  <span className="material-symbols-outlined text-sm">account_balance_wallet</span>
-                  How do other members contribute to the vault?
-                </h4>
-                <p className="text-on-surface-variant leading-relaxed">
-                  In a production environment, each participant connects their own Leather Wallet. They click <strong className="text-white">"Authorize Automation Rules"</strong> to sign a transaction specifying the active turn recipient on-chain. When they deposit, FlowVault's Split primitive intercepts the deposit and routes it peer-to-peer instantly.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
-                  <span className="material-symbols-outlined text-sm">group_add</span>
-                  If I invite a new member, are they added to the rotation?
-                </h4>
-                <p className="text-on-surface-variant leading-relaxed">
-                  Yes. Inviting a member appends them to the end of the rotation list. The sequential turn-based engine will cycle through to them once the active members ahead of them have successfully completed their respective rounds.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
-                  <span className="material-symbols-outlined text-sm">rotate_left</span>
-                  Why are Kwame, Chidi, and Fatoumata already in the list?
-                </h4>
-                <p className="text-on-surface-variant leading-relaxed">
-                  To keep the MVP testing experience smooth and immediately interactive for judges! Rather than forcing you to type and coordinate multiple fake wallet addresses manually, these pre-configured members demonstrate how the automated split-routings and commitment vault reserves behave right out of the box.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
-                  <span className="material-symbols-outlined text-sm">verified_user</span>
-                  Is this custody-free? Where is the money held?
-                </h4>
-                <p className="text-on-surface-variant leading-relaxed">
-                  CircleSave is completely <strong className="text-white">non-custodial</strong>. No funds are ever held by a centralized backend. Every routing rule is written directly to the FlowVault smart contract, and all deposit routing is executed trustlessly peer-to-peer at deposit time on the Stacks blockchain.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
       </main>
 
       {/* Setup Modal */}
