@@ -134,12 +134,12 @@ export function CircleSave() {
     const allReceived = curMembers.every((m, i) => i === curTurn || m.hasReceived);
     if (allReceived) {
       setMembers((prev) => prev.map((m) => ({ ...m, hasReceived: false })));
-      addLedger(`🎉 Full cycle complete! ${curMembers.length} members paid. Starting a new round.`);
+      addLedger(`Full cycle complete! ${curMembers.length} members paid. Starting a new round.`);
     }
-    addLedger(`✓ ${turn.name} received ${fmtNumber(cfg.targetPool)} ${UNIT}. Turn → ${curMembers[next]?.name}.`);
+    addLedger(`${turn.name} received ${fmtNumber(cfg.targetPool)} ${UNIT}. Turn → ${curMembers[next]?.name}.`);
     setToast({
       kind: "ok",
-      msg: `✓ ${turn.name} received the payout! Pool reset — next up: ${curMembers[next]?.name}.`,
+      msg: `${turn.name} received the payout! Pool reset — next up: ${curMembers[next]?.name}.`,
     });
   }, [addLedger]);
 
@@ -285,9 +285,9 @@ export function CircleSave() {
       if (config.autoDispatch) {
         setToast({
           kind: "ok",
-          msg: `🎯 Target reached! ${fmtNumber(config.targetPool)} ${UNIT} contributed. Advancing payout to ${turnMember?.name}.`,
+          msg: `Target reached! ${fmtNumber(config.targetPool)} ${UNIT} contributed. Advancing payout to ${turnMember?.name}.`,
         });
-        addLedger(`🎯 Target reached — auto-advancing to ${turnMember?.name}`);
+        addLedger(`Target reached — auto-advancing to ${turnMember?.name}`);
         const t = window.setTimeout(() => {
           advanceRef.current();
         }, 1200);
@@ -295,9 +295,9 @@ export function CircleSave() {
       } else {
         setToast({
           kind: "ok",
-          msg: `🎯 Target reached! ${fmtNumber(config.targetPool)} ${UNIT} contributed. Tap "Dispatch Payout" to send to ${turnMember?.name}.`,
+          msg: `Target reached! ${fmtNumber(config.targetPool)} ${UNIT} contributed. Tap "Dispatch Payout" to send to ${turnMember?.name}.`,
         });
-        addLedger(`🎯 Target reached — awaiting manual dispatch to ${turnMember?.name}`);
+        addLedger(`Target reached — awaiting manual dispatch to ${turnMember?.name}`);
       }
     }
     if (!poolReady) {
@@ -488,6 +488,28 @@ export function CircleSave() {
           <div className="flex items-center gap-3 mb-6">
             <span className="material-symbols-outlined text-primary text-3xl">help_outline</span>
             <h3 className="text-2xl font-bold text-white">How It Works & FAQ — Judge's Quick Reference</h3>
+          </div>
+
+          {/* Quick Start Guide Banner */}
+          <div className="mb-8 p-5 bg-primary/10 border border-primary/20 rounded-lg">
+            <h4 className="font-bold text-white flex items-center gap-2 mb-2 text-base">
+              <span className="material-symbols-outlined text-primary text-lg">play_circle</span>
+              How to Run a Perfect CircleSave Simulation
+            </h4>
+            <ol className="list-decimal pl-5 space-y-2 text-on-surface-variant text-sm">
+              <li>
+                <strong className="text-white">Connect & Initialize:</strong> Connect your Stacks Testnet Wallet (Leather recommended). Click <strong className="text-white">"Start Your Circle"</strong>, specify your custom Circle Name, set your preferred custom Target Pool amount, set your preferred Contribution Amount Per Member, and toggle <strong className="text-white">"Automatic Payout" ON</strong>.
+              </li>
+              <li>
+                <strong className="text-white">Authorize the Route:</strong> In the <em>Financial Actions</em> panel, click <strong className="text-white">"Authorize Automation Rules"</strong>. This sets your dynamic split rule on-chain to route contributions cleanly to the active turn member.
+              </li>
+              <li>
+                <strong className="text-white">Contribute:</strong> Enter your deposit amount in the <em>Manual Deposit Boost</em> field (e.g. 10 USDCx) and click <strong className="text-white">"Deposit Boost"</strong> to submit.
+              </li>
+              <li>
+                <strong className="text-white">Rotate & Fill:</strong> Repeat the deposits. When the progress ring hits 100% (target reached), the system will automatically dispatch the accumulated pool directly to the active member, advance the rotation to the next person, and reset the pool tracking progress cleanly back to 0%.
+              </li>
+            </ol>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">

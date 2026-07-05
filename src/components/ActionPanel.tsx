@@ -111,7 +111,7 @@ export function ActionPanel({
         {busy
           ? "Awaiting wallet…"
           : poolReady
-            ? `🎯 Dispatch ${poolBalance.toLocaleString()} ${UNIT} → ${turnMemberName}`
+            ? `Dispatch ${poolBalance.toLocaleString()} ${UNIT} → ${turnMemberName}`
             : "Dispatch Payout (unlocks at target)"}
       </button>
     </div>

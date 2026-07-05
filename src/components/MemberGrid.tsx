@@ -76,7 +76,7 @@ export function MemberGrid({
                       )}
                       {m.hasReceived && (
                         <span className="text-[9px] font-bold text-green-400 bg-green-500/15 px-1.5 py-0.5 rounded uppercase">
-                          ✓ Received
+                      Received
                         </span>
                       )}
                     </p>
