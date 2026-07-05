@@ -491,25 +491,62 @@ export function CircleSave() {
           </div>
 
           {/* Quick Start Guide Banner */}
-          <div className="mb-8 p-5 bg-primary/10 border border-primary/20 rounded-lg">
-            <h4 className="font-bold text-white flex items-center gap-2 mb-2 text-base">
+          <div className="mb-8 p-6 bg-primary/10 border border-primary/20 rounded-lg">
+            <h4 className="font-bold text-white flex items-center gap-2 mb-4 text-base">
               <span className="material-symbols-outlined text-primary text-lg">play_circle</span>
-              How to Run a Perfect CircleSave Simulation
+              Step-by-Step: How to Run a Perfect CircleSave Simulation
             </h4>
-            <ol className="list-decimal pl-5 space-y-2 text-on-surface-variant text-sm">
-              <li>
-                <strong className="text-white">Connect & Initialize:</strong> Connect your Stacks Testnet Wallet (Leather recommended). Click <strong className="text-white">"Start Your Circle"</strong>, specify your custom Circle Name, set your preferred custom Target Pool amount, set your preferred Contribution Amount Per Member, and toggle <strong className="text-white">"Automatic Payout" ON</strong>.
-              </li>
-              <li>
-                <strong className="text-white">Authorize the Route:</strong> In the <em>Financial Actions</em> panel, click <strong className="text-white">"Authorize Automation Rules"</strong>. This sets your dynamic split rule on-chain to route contributions cleanly to the active turn member.
-              </li>
-              <li>
-                <strong className="text-white">Contribute:</strong> Enter your deposit amount in the <em>Manual Deposit Boost</em> field (e.g. 10 USDCx) and click <strong className="text-white">"Deposit Boost"</strong> to submit.
-              </li>
-              <li>
-                <strong className="text-white">Rotate & Fill:</strong> Repeat the deposits. When the progress ring hits 100% (target reached), the system will automatically dispatch the accumulated pool directly to the active member, advance the rotation to the next person, and reset the pool tracking progress cleanly back to 0%.
-              </li>
-            </ol>
+            
+            <div className="space-y-6 text-sm text-on-surface-variant">
+              {/* Step 1 */}
+              <div className="border-l-2 border-primary/30 pl-4">
+                <h5 className="font-bold text-white mb-1 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">1</span>
+                  Connect &amp; Initialize the Circle
+                </h5>
+                <p className="leading-relaxed">
+                  Connect your Stacks Testnet Wallet (Leather recommended) to the app. Once connected, click the <strong className="text-white">"Start Your Circle"</strong> button. Inside the setup modal, input your custom Circle Name, configure your custom Target Pool milestone, specify your Contribution Amount Per Member, and toggle <strong className="text-white">"Automatic Payout" ON</strong> to authorize hands-free rotation.
+                </p>
+              </div>
+
+              {/* Step 2 */}
+              <div className="border-l-2 border-primary/30 pl-4">
+                <h5 className="font-bold text-white mb-1 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">2</span>
+                  Authorize On-Chain Automation Rules
+                </h5>
+                <p className="leading-relaxed">
+                  In the <em className="text-white">Financial Actions</em> panel, click <strong className="text-white">"Authorize Automation Rules"</strong>. This requests a Leather wallet transaction that sets your routing rules directly on the FlowVault smart contract. Under the hood, this configures the contract to automatically forward your deposit amounts to whoever is the current active turn recipient.
+                </p>
+              </div>
+
+              {/* Step 3 */}
+              <div className="border-l-2 border-primary/30 pl-4">
+                <h5 className="font-bold text-white mb-1 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">3</span>
+                  Deposit &amp; Auto-Route Funds
+                </h5>
+                <p className="leading-relaxed">
+                  Navigate to the <em className="text-white">Manual Deposit Boost</em> field and enter your contribution amount (matching your per-member setup limit, e.g., 10 USDCx). Click <strong className="text-white">"Deposit Boost"</strong>. Once approved in your wallet, the FlowVault split primitive intercepts the deposit on-chain and dispatches it directly to the active turn member's wallet address.
+                </p>
+              </div>
+
+              {/* Step 4 */}
+              <div className="border-l-2 border-primary/30 pl-4">
+                <h5 className="font-bold text-white mb-1 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-data-mono">4</span>
+                  Achieve Target &amp; Rotate Turns
+                </h5>
+                <p className="leading-relaxed">
+                  Submit contributions from circle members to fill the progress ring. The moment your aggregated contributions hit 100% of your target milestone:
+                </p>
+                <ul className="list-disc pl-5 mt-1 space-y-1 text-xs">
+                  <li>The FlowVault router automatically transfers the complete pool balance directly to the active member's address.</li>
+                  <li>The progress tracker resets cleanly back to <strong className="text-white">0%</strong>.</li>
+                  <li>The system shifts the active pointer to the next member in the sequence, ready for the next round.</li>
+                </ul>
+              </div>
+            </div>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
