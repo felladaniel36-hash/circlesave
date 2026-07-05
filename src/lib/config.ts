@@ -115,5 +115,5 @@ export const STORAGE = {
 // ---------------------------------------------------------------------------
 
 export const SEED_MEMBERS: CircleMember[] = [
-  { id: "kwame", name: "Kwame", address: "ST2KY52148HEZ544N614HYPVSX6HDF45V419E83M0", reputation: 98, vaultReserve: 40, vaultStatus: "Healthy", hasReceived: false },
+  { id: "kwame", name: "Kwame", address: "ST31CBXJ4WHPA5B1CX8DD6D8NDTWVPATW6Z4Z4H67", reputation: 98, vaultReserve: 40, vaultStatus: "Healthy", hasReceived: false },
 ];
