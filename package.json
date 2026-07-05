@@ -4,8 +4,8 @@
   "private": true,
   "description": "CircleSave — A trustless digital cooperative savings platform powered by FlowVault on Stacks.",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
