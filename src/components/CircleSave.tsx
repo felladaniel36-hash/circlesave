@@ -482,6 +482,60 @@ export function CircleSave() {
             </div>
           </div>
         )}
+
+        {/* How It Works & FAQ Section for Judges */}
+        <div className="mt-12 glass-panel p-8 rounded-xl border border-zinc-800/80">
+          <div className="flex items-center gap-3 mb-6">
+            <span className="material-symbols-outlined text-primary text-3xl">help_outline</span>
+            <h3 className="text-2xl font-bold text-white">How It Works & FAQ — Judge's Quick Reference</h3>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
+                  <span className="material-symbols-outlined text-sm">account_balance_wallet</span>
+                  How do other members contribute to the vault?
+                </h4>
+                <p className="text-on-surface-variant leading-relaxed">
+                  In a production environment, each participant connects their own Leather Wallet. They click <strong className="text-white">"Authorize Automation Rules"</strong> to sign a transaction specifying the active turn recipient on-chain. When they deposit, FlowVault's Split primitive intercepts the deposit and routes it peer-to-peer instantly.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
+                  <span className="material-symbols-outlined text-sm">group_add</span>
+                  If I invite a new member, are they added to the rotation?
+                </h4>
+                <p className="text-on-surface-variant leading-relaxed">
+                  Yes. Inviting a member appends them to the end of the rotation list. The sequential turn-based engine will cycle through to them once the active members ahead of them have successfully completed their respective rounds.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
+                  <span className="material-symbols-outlined text-sm">rotate_left</span>
+                  Why are Kwame, Chidi, and Fatoumata already in the list?
+                </h4>
+                <p className="text-on-surface-variant leading-relaxed">
+                  To keep the MVP testing experience smooth and immediately interactive for judges! Rather than forcing you to type and coordinate multiple fake wallet addresses manually, these pre-configured members demonstrate how the automated split-routings and commitment vault reserves behave right out of the box.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-primary flex items-center gap-2 mb-1.5">
+                  <span className="material-symbols-outlined text-sm">verified_user</span>
+                  Is this custody-free? Where is the money held?
+                </h4>
+                <p className="text-on-surface-variant leading-relaxed">
+                  CircleSave is completely <strong className="text-white">non-custodial</strong>. No funds are ever held by a centralized backend. Every routing rule is written directly to the FlowVault smart contract, and all deposit routing is executed trustlessly peer-to-peer at deposit time on the Stacks blockchain.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
 
       {/* Setup Modal */}
