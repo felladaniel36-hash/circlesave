@@ -487,7 +487,7 @@ export function CircleSave() {
         <div className="mt-12 glass-panel p-8 rounded-xl border border-zinc-800/80">
           <div className="flex items-center gap-3 mb-6">
             <span className="material-symbols-outlined text-primary text-3xl">help_outline</span>
-            <h3 className="text-2xl font-bold text-white">How It Works & FAQ</h3>
+            <h3 className="text-2xl font-bold text-white">How It Works & FAQ — Judge's Quick Reference</h3>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
