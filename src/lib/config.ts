@@ -115,7 +115,5 @@ export const STORAGE = {
 // ---------------------------------------------------------------------------
 
 export const SEED_MEMBERS: CircleMember[] = [
-  { id: "kwame", name: "Kwame", address: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM", reputation: 98, vaultReserve: 40, vaultStatus: "Healthy", hasReceived: false },
-  { id: "chidi", name: "Chidi", address: "ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG", reputation: 95, vaultReserve: 35, vaultStatus: "Healthy", hasReceived: false },
-  { id: "fatoumata", name: "Fatoumata", address: "STB44HYPYAT2BB2QE513NSP81HTMYWYNPVC1TCYG", reputation: 100, vaultReserve: 50, vaultStatus: "Healthy", hasReceived: false },
+  { id: "kwame", name: "Kwame", address: "ST2KY52148HEZ544N614HYPVSX6HDF45V419E83M0", reputation: 98, vaultReserve: 40, vaultStatus: "Healthy", hasReceived: false },
 ];
