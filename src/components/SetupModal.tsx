@@ -22,9 +22,9 @@ export function SetupModal({
   onClose,
   onCreate,
 }: SetupModalProps) {
-  const [name, setName] = useState("Family Circle");
-  const [target, setTarget] = useState("1200");
-  const [contribution, setContribution] = useState("10");
+  const [name, setName] = useState("");
+  const [target, setTarget] = useState("");
+  const [contribution, setContribution] = useState("");
   const [autoDispatch, setAutoDispatch] = useState(initialAutoDispatch);
   const [error, setError] = useState("");
 
@@ -72,7 +72,7 @@ export function SetupModal({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Family Circle"
+              placeholder="e.g. Family Circle"
               className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -86,8 +86,8 @@ export function SetupModal({
                 type="number"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
-                placeholder="1200"
-                className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg outline-none focus:ring-1 focus:ring-primary font-data-mono"
+                placeholder="Min 0 Max 99999"
+                className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg outline-none focus:ring-1 focus:ring-primary font-data-mono text-sm"
               />
             </div>
             <div>
@@ -98,8 +98,8 @@ export function SetupModal({
                 type="number"
                 value={contribution}
                 onChange={(e) => setContribution(e.target.value)}
-                placeholder="10"
-                className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg outline-none focus:ring-1 focus:ring-primary font-data-mono"
+                placeholder="Min 0 Max 99999"
+                className="w-full bg-[#09090b] border border-zinc-800 text-white p-4 rounded-lg outline-none focus:ring-1 focus:ring-primary font-data-mono text-sm"
               />
             </div>
           </div>
